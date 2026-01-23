@@ -3,6 +3,9 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    
+    // ✅ ADDED: Required for Firebase to read your google-services.json
+    id("com.google.gms.google-services") 
 }
 
 android {
@@ -11,9 +14,11 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // Keep Java 11 if your setup supports it, otherwise switch to VERSION_1_8
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-        // Enable Core Library Desugaring
+        
+        // ✅ Enable Core Library Desugaring (Required for Notification Time logic)
         isCoreLibraryDesugaringEnabled = true
     }
 
@@ -22,10 +27,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.bluedrop_v2"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -34,8 +36,6 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -46,6 +46,6 @@ flutter {
 }
 
 dependencies {
-    // UPDATED: Changed version to 2.1.4
+    // ✅ Desugaring Library
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

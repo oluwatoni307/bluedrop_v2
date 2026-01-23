@@ -1,3 +1,19 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // 1. Android Build Tool (Required)
+        // Check your android/settings.gradle or generic version if this fails
+        classpath("com.android.tools.build:gradle:8.1.0") 
+
+        // 2. Google Services Plugin (CRITICAL FOR FIREBASE)
+        // This is what reads your json file
+        classpath("com.google.gms:google-services:4.4.0")
+    }
+}
+
 allprojects {
     repositories {
         google()
