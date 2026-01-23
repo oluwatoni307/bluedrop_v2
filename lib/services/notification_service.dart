@@ -198,3 +198,33 @@ class NotificationManager {
         : List<Map<String, dynamic>>.from(jsonDecode(storedString));
   }
 }
+
+// test funciton
+Future<void> scheduleTestAlarms() async {
+  final manager = NotificationManager();
+  final now = DateTime.now();
+
+  // The offsets you requested (in minutes)
+  final offsets = [5, 15, 30, 60, 120];
+
+  print("🚀 Scheduling 5 test alarms...");
+
+  for (int i = 0; i < offsets.length; i++) {
+    final minutes = offsets[i];
+    final scheduledTime = now.add(Duration(minutes: minutes));
+
+    // Use IDs 100+ to avoid messing up your main Morning/Afternoon/Evening alarms (IDs 1, 2, 3)
+    final id = 100 + i;
+
+    await manager.scheduleAggressiveAlarm(
+      id: id,
+      title: "Test Alarm (+${minutes}m)",
+      body: "This is your $minutes minute test verification.",
+      scheduledTime: scheduledTime,
+    );
+
+    print(
+      "   ✅ Scheduled ID $id for ${scheduledTime.hour}:${scheduledTime.minute}",
+    );
+  }
+}

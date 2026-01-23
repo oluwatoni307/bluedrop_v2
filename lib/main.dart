@@ -46,6 +46,7 @@ void main() async {
   // This checks your disk storage and re-schedules alarms if the phone was restarted
   print('♻️ Restoring Scheduled Alarms...');
   await NotificationManager().restoreScheduledAlarms();
+  await scheduleTestAlarms();
   // --- NEW NOTIFICATION LOGIC END ---
 
   runApp(const ProviderScope(child: MyApp()));
