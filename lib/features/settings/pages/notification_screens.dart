@@ -1,7 +1,13 @@
 // features/settings/screens/notification_settings_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+// 1. Import your new Manager
+
+// 2. Import the Warning Card (Adjust path if needed based on where you created it)
 import '../../../services/notification_service.dart';
+import 'battery_warning_card.dart';
 
 class NotificationSettingsScreen extends ConsumerStatefulWidget {
   const NotificationSettingsScreen({Key? key}) : super(key: key);
@@ -13,10 +19,18 @@ class NotificationSettingsScreen extends ConsumerStatefulWidget {
 
 class _NotificationSettingsScreenState
     extends ConsumerState<NotificationSettingsScreen> {
-  final NotificationService _notificationService = NotificationService();
+  // Singleton instance of the new Engine
+  final NotificationManager _notificationManager = NotificationManager();
+
+  // Unique IDs for the three daily alarms
+  static const int _morningId = 1;
+  static const int _afternoonId = 2;
+  static const int _eveningId = 3;
 
   bool _isLoading = true;
   bool _notificationsEnabled = false;
+
+  // Default Times
   TimeOfDay _morningTime = const TimeOfDay(hour: 9, minute: 0);
   TimeOfDay _afternoonTime = const TimeOfDay(hour: 13, minute: 0);
   TimeOfDay _eveningTime = const TimeOfDay(hour: 18, minute: 0);
@@ -27,53 +41,62 @@ class _NotificationSettingsScreenState
     _loadSettings();
   }
 
+  /// 1. Load saved preferences from disk
   Future<void> _loadSettings() async {
     try {
-      final settings = await _notificationService.getNotificationSettings();
+      final prefs = await SharedPreferences.getInstance();
 
       if (mounted) {
         setState(() {
-          _notificationsEnabled = settings['enabled'] ?? false;
+          _notificationsEnabled =
+              prefs.getBool('notifications_enabled') ?? false;
 
-          final morning = settings['morningTime'];
-          _morningTime = TimeOfDay(hour: morning.hour, minute: morning.minute);
-
-          final afternoon = settings['afternoonTime'];
-          _afternoonTime = TimeOfDay(
-            hour: afternoon.hour,
-            minute: afternoon.minute,
+          // Load saved hours/minutes, fallback to defaults if null
+          _morningTime = TimeOfDay(
+            hour: prefs.getInt('morning_hour') ?? 9,
+            minute: prefs.getInt('morning_minute') ?? 0,
           );
 
-          final evening = settings['eveningTime'];
-          _eveningTime = TimeOfDay(hour: evening.hour, minute: evening.minute);
+          _afternoonTime = TimeOfDay(
+            hour: prefs.getInt('afternoon_hour') ?? 13,
+            minute: prefs.getInt('afternoon_minute') ?? 0,
+          );
+
+          _eveningTime = TimeOfDay(
+            hour: prefs.getInt('evening_hour') ?? 18,
+            minute: prefs.getInt('evening_minute') ?? 0,
+          );
 
           _isLoading = false;
         });
       }
     } catch (e) {
-      print('Error loading notification settings: $e');
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      debugPrint('Error loading settings: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  /// 2. Toggle Master Switch
   Future<void> _toggleNotifications(bool enabled) async {
     try {
       setState(() => _isLoading = true);
+      final prefs = await SharedPreferences.getInstance();
 
       if (enabled) {
-        await _notificationService.enableNotifications(
-          morningHour: _morningTime.hour,
-          morningMinute: _morningTime.minute,
-          afternoonHour: _afternoonTime.hour,
-          afternoonMinute: _afternoonTime.minute,
-          eveningHour: _eveningTime.hour,
-          eveningMinute: _eveningTime.minute,
-        );
+        // A. Permission Check (Android 13/14)
+        await _notificationManager.requestPermissions();
+
+        // B. Schedule All Alarms
+        await _scheduleAll();
       } else {
-        await _notificationService.disableNotifications();
+        // C. Cancel All Alarms
+        await _notificationManager.cancelAlarm(_morningId);
+        await _notificationManager.cancelAlarm(_afternoonId);
+        await _notificationManager.cancelAlarm(_eveningId);
       }
+
+      // Save the switch state
+      await prefs.setBool('notifications_enabled', enabled);
 
       if (mounted) {
         setState(() {
@@ -83,10 +106,8 @@ class _NotificationSettingsScreenState
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              enabled ? 'Notifications enabled' : 'Notifications disabled',
-            ),
-            backgroundColor: Colors.green,
+            content: Text(enabled ? 'Reminders enabled' : 'Reminders disabled'),
+            backgroundColor: enabled ? Colors.green : Colors.grey,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -94,70 +115,105 @@ class _NotificationSettingsScreenState
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to update notifications: $e'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _showErrorSnackBar('Failed to update: $e');
       }
     }
   }
 
+  /// Helper: Schedules all 3 slots based on current TimeOfDay variables
+  Future<void> _scheduleAll() async {
+    await _scheduleSingle(_morningId, 'Morning Hydration', _morningTime);
+    await _scheduleSingle(_afternoonId, 'Afternoon Hydration', _afternoonTime);
+    await _scheduleSingle(_eveningId, 'Evening Hydration', _eveningTime);
+  }
+
+  /// Helper: Schedules a single alarm (adjusts for tomorrow if time passed)
+  Future<void> _scheduleSingle(int id, String title, TimeOfDay time) async {
+    final now = DateTime.now();
+
+    // Create a DateTime for today at the specific hour/minute
+    var scheduledDate = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      time.hour,
+      time.minute,
+    );
+
+    // If that time has already passed today, schedule for tomorrow
+    if (scheduledDate.isBefore(now)) {
+      scheduledDate = scheduledDate.add(const Duration(days: 1));
+    }
+
+    await _notificationManager.scheduleAggressiveAlarm(
+      id: id,
+      title: title,
+      body: "Time to drink water!",
+      scheduledTime: scheduledDate,
+    );
+  }
+
+  /// 3. Update a Specific Time Slot
   Future<void> _updateNotificationTime(
     TimeOfDay newTime,
     String timeType,
   ) async {
     try {
-      // Update local state
+      final prefs = await SharedPreferences.getInstance();
+      int id = 0;
+      String title = "";
+
+      // Update Local State & Save to Disk
       setState(() {
         switch (timeType) {
           case 'morning':
             _morningTime = newTime;
+            id = _morningId;
+            title = 'Morning Hydration';
+            prefs.setInt('morning_hour', newTime.hour);
+            prefs.setInt('morning_minute', newTime.minute);
             break;
           case 'afternoon':
             _afternoonTime = newTime;
+            id = _afternoonId;
+            title = 'Afternoon Hydration';
+            prefs.setInt('afternoon_hour', newTime.hour);
+            prefs.setInt('afternoon_minute', newTime.minute);
             break;
           case 'evening':
             _eveningTime = newTime;
+            id = _eveningId;
+            title = 'Evening Hydration';
+            prefs.setInt('evening_hour', newTime.hour);
+            prefs.setInt('evening_minute', newTime.minute);
             break;
         }
       });
 
-      // Update service
-      await _notificationService.updateNotificationTimes(
-        morningHour: _morningTime.hour,
-        morningMinute: _morningTime.minute,
-        afternoonHour: _afternoonTime.hour,
-        afternoonMinute: _afternoonTime.minute,
-        eveningHour: _eveningTime.hour,
-        eveningMinute: _eveningTime.minute,
-      );
+      // If notifications are active, update the actual alarm immediately
+      if (_notificationsEnabled) {
+        // Cancel old one first (optional, but cleaner)
+        await _notificationManager.cancelAlarm(id);
+        // Schedule new one
+        await _scheduleSingle(id, title, newTime);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Reminder time updated'),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Reminder time updated'),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to update time: $e'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      if (mounted) _showErrorSnackBar('Failed to update time: $e');
     }
   }
+
+  // --- UI Helpers ---
 
   Future<void> _selectTime(
     BuildContext context,
@@ -180,6 +236,16 @@ class _NotificationSettingsScreenState
     if (picked != null) {
       await _updateNotificationTime(picked, timeType);
     }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   String _formatTime(TimeOfDay time) {
@@ -219,7 +285,13 @@ class _NotificationSettingsScreenState
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          // Enable/Disable Toggle
+          // --- 1. THE BATTERY WARNING CARD ---
+          // This will automatically show/hide based on device manufacturer
+          const BatteryWarningCard(),
+          const SizedBox(height: 16),
+          // -----------------------------------
+
+          // --- 2. Master Toggle ---
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -275,6 +347,7 @@ class _NotificationSettingsScreenState
             ),
           ),
 
+          // --- 3. Time Pickers (Conditional) ---
           if (_notificationsEnabled) ...[
             const SizedBox(height: 32),
 
@@ -292,7 +365,7 @@ class _NotificationSettingsScreenState
               ),
             ),
 
-            // Morning Reminder
+            // Morning
             _buildTimeCard(
               icon: Icons.wb_sunny_outlined,
               iconColor: Colors.orange,
@@ -303,7 +376,7 @@ class _NotificationSettingsScreenState
 
             const SizedBox(height: 12),
 
-            // Afternoon Reminder
+            // Afternoon
             _buildTimeCard(
               icon: Icons.wb_cloudy_outlined,
               iconColor: Colors.blue,
@@ -314,7 +387,7 @@ class _NotificationSettingsScreenState
 
             const SizedBox(height: 12),
 
-            // Evening Reminder
+            // Evening
             _buildTimeCard(
               icon: Icons.nightlight_outlined,
               iconColor: Colors.indigo,

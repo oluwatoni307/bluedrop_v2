@@ -1,3 +1,4 @@
+import 'package:bluedrop_v2/services/notification_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -5,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'features/hub/data/seed_data.dart';
 import 'services/database_service.dart';
-import 'services/notification_service.dart';
 import 'theme.dart';
 import 'router.dart';
 
@@ -33,9 +33,20 @@ void main() async {
     boxes: ['user_profile', 'waterLogs', 'reminders', 'challenges'],
   );
   await SeedData.injectDummyChallenges();
+
   print('🚀 Starting app...');
   await dotenv.load(fileName: ".env");
-  await NotificationService().initialize();
+
+  // --- NEW NOTIFICATION LOGIC START ---
+  print('🔔 Initializing Notification Engine...');
+  // 1. Initialize the Engine (Channels, Permissions Config)
+  await NotificationManager().init();
+
+  // 2. REBOOT RECOVERY (The Safety Net)
+  // This checks your disk storage and re-schedules alarms if the phone was restarted
+  print('♻️ Restoring Scheduled Alarms...');
+  await NotificationManager().restoreScheduledAlarms();
+  // --- NEW NOTIFICATION LOGIC END ---
 
   runApp(const ProviderScope(child: MyApp()));
 }
@@ -51,7 +62,6 @@ class MyApp extends ConsumerWidget {
       routerConfig: router,
       title: 'BlueDrop',
       theme: AppTheme.lightTheme,
-
       debugShowCheckedModeBanner: false,
     );
   }

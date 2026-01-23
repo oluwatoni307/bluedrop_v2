@@ -49,6 +49,16 @@ dependencies:
   http: ^1.6.0
   flutter_local_notifications: ^19.5.0
   timezone: ^0.10.1
+  # The Notification Engine
+
+  # The "Chinese Phone Fixer" tools
+  android_intent_plus: ^5.0.0
+  device_info_plus: ^11.0.0
+
+  # Storage & Logic
+  shared_preferences: ^2.3.0
+  permission_handler: ^11.0.0
+  package_info_plus: 9.0.0
 
 dev_dependencies:
   flutter_test:

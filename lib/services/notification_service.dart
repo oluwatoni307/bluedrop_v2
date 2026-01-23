@@ -1,353 +1,200 @@
-// lib/services/notification_service.dart
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:timezone/timezone.dart' as tz;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tz;
-import 'database_service.dart';
+import 'package:timezone/timezone.dart' as tz;
 
-class NotificationService {
-  static final NotificationService _instance = NotificationService._internal();
-  factory NotificationService() => _instance;
-  NotificationService._internal();
+class NotificationManager {
+  static final NotificationManager _instance = NotificationManager._internal();
+  factory NotificationManager() => _instance;
+  NotificationManager._internal();
 
-  final FlutterLocalNotificationsPlugin _notifications =
+  final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
-  final DatabaseService _db = DatabaseService();
+  static const String _storageKey = 'scheduled_alarms_v1';
 
-  bool _isInitialized = false;
+  /// 1. INITIALIZE
+  Future<void> init() async {
+    tz.initializeTimeZones();
 
-  // Notification IDs for different reminder times
-  static const int morningNotificationId = 1;
-  static const int afternoonNotificationId = 2;
-  static const int eveningNotificationId = 3;
+    const AndroidInitializationSettings androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
 
-  // ============================================
-  // INITIALIZATION
-  // ============================================
+    const DarwinInitializationSettings iosSettings =
+        DarwinInitializationSettings(
+          requestSoundPermission: true,
+          requestBadgePermission: true,
+          requestAlertPermission: true,
+        );
 
-  Future<void> initialize() async {
-    if (_isInitialized) return;
+    const InitializationSettings initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    );
 
-    try {
-      // Initialize timezone
-      tz.initializeTimeZones();
+    await _plugin.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: (details) {
+        debugPrint("Notification Clicked: ${details.payload}");
+      },
+    );
 
-      // Android initialization settings
-      const androidSettings = AndroidInitializationSettings(
-        '@mipmap/ic_launcher',
-      );
-
-      const initSettings = InitializationSettings(android: androidSettings);
-
-      await _notifications.initialize(
-        initSettings,
-        onDidReceiveNotificationResponse: _onNotificationTapped,
-      );
-
-      _isInitialized = true;
-      print('✅ Notification service initialized');
-
-      // Load and schedule notifications if enabled
-      await _loadAndScheduleNotifications();
-    } catch (e) {
-      print('❌ Notification initialization failed: $e');
-    }
+    await _createCriticalChannel();
   }
 
-  // ============================================
-  // NOTIFICATION SCHEDULING
-  // ============================================
+  /// 2. REQUEST PERMISSIONS
+  Future<void> requestPermissions() async {
+    if (Platform.isAndroid) {
+      final androidPlugin = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
 
-  /// Load settings from database and schedule notifications
-  Future<void> _loadAndScheduleNotifications() async {
-    try {
-      final profile = await _db.getProfile();
+      await androidPlugin?.requestNotificationsPermission();
 
-      if (profile == null) return;
-
-      final enabled = profile['notificationsEnabled'] ?? false;
-
-      if (!enabled) {
-        await cancelAllNotifications();
-        return;
+      final bool? granted = await androidPlugin?.requestExactAlarmsPermission();
+      if (granted == false) {
+        debugPrint("Exact Alarm permission denied.");
       }
-
-      // Parse times
-      final morningTime = _parseTime(profile['morningTime'] ?? '9:0');
-      final afternoonTime = _parseTime(profile['afternoonTime'] ?? '13:0');
-      final eveningTime = _parseTime(profile['eveningTime'] ?? '18:0');
-
-      // Schedule notifications
-      await _scheduleDailyNotification(
-        id: morningNotificationId,
-        hour: morningTime.hour,
-        minute: morningTime.minute,
-        title: '🌅 Morning Hydration Reminder',
-        body: 'Start your day right! Time to drink some water.',
-      );
-
-      await _scheduleDailyNotification(
-        id: afternoonNotificationId,
-        hour: afternoonTime.hour,
-        minute: afternoonTime.minute,
-        title: '☀️ Afternoon Check-in',
-        body: 'Keep up the good work! Don\'t forget to hydrate.',
-      );
-
-      await _scheduleDailyNotification(
-        id: eveningNotificationId,
-        hour: eveningTime.hour,
-        minute: eveningTime.minute,
-        title: '🌙 Evening Reminder',
-        body: 'Almost done for the day! Time for some water.',
-      );
-
-      print('✅ Notifications scheduled');
-    } catch (e) {
-      print('❌ Failed to load and schedule notifications: $e');
+    } else if (Platform.isIOS) {
+      await _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >()
+          ?.requestPermissions(alert: true, badge: true, sound: true);
     }
   }
 
-  /// Schedule a daily notification at specific time
-  Future<void> _scheduleDailyNotification({
+  /// 3. SCHEDULE (Aggressive Mode)
+  Future<void> scheduleAggressiveAlarm({
     required int id,
-    required int hour,
-    required int minute,
     required String title,
     required String body,
+    required DateTime scheduledTime,
   }) async {
-    try {
-      final now = tz.TZDateTime.now(tz.local);
-      var scheduledDate = tz.TZDateTime(
-        tz.local,
-        now.year,
-        now.month,
-        now.day,
-        hour,
-        minute,
-      );
+    await _saveAlarmToDisk(id, title, body, scheduledTime);
 
-      // If the time has already passed today, schedule for tomorrow
-      if (scheduledDate.isBefore(now)) {
-        scheduledDate = scheduledDate.add(const Duration(days: 1));
-      }
-
-      await _notifications.zonedSchedule(
-        id,
-        title,
-        body,
-        scheduledDate,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            'hydration_reminders',
-            'Hydration Reminders',
-            channelDescription: 'Daily reminders to drink water',
-            importance: Importance.high,
-            priority: Priority.high,
-            icon: '@mipmap/ic_launcher',
-            playSound: true,
-            enableVibration: true,
-          ),
+    await _plugin.zonedSchedule(
+      id,
+      title,
+      body,
+      tz.TZDateTime.from(scheduledTime, tz.local),
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'critical_channel_id',
+          'Critical Reminders',
+          channelDescription: 'Used for important medical reminders',
+          importance: Importance.max,
+          priority: Priority.high,
+          audioAttributesUsage: AudioAttributesUsage.alarm,
+          category: AndroidNotificationCategory.alarm,
+          visibility: NotificationVisibility.public,
+          fullScreenIntent: true,
         ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        matchDateTimeComponents: DateTimeComponents.time, // Repeat daily
-      );
-
-      print('✅ Scheduled notification $id for $hour:$minute');
-    } catch (e) {
-      print('❌ Failed to schedule notification $id: $e');
-    }
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentSound: true,
+          interruptionLevel: InterruptionLevel.critical,
+        ),
+      ),
+      // ONLY this parameter is needed now
+      androidScheduleMode: AndroidScheduleMode.alarmClock,
+    );
   }
 
-  // ============================================
-  // PUBLIC METHODS
-  // ============================================
+  /// 4. RESTORE (Boot Recovery)
+  Future<void> restoreScheduledAlarms() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? storedString = prefs.getString(_storageKey);
 
-  /// Enable notifications and schedule them
-  Future<void> enableNotifications({
-    required int morningHour,
-    required int morningMinute,
-    required int afternoonHour,
-    required int afternoonMinute,
-    required int eveningHour,
-    required int eveningMinute,
-  }) async {
-    try {
-      // Request permission (Android 13+)
-      await _requestPermission();
+    if (storedString == null) return;
 
-      // Save settings to database
-      await _db.updateProfile({
-        'notificationsEnabled': true,
-        'morningTime': '$morningHour:$morningMinute',
-        'afternoonTime': '$afternoonHour:$afternoonMinute',
-        'eveningTime': '$eveningHour:$eveningMinute',
-      });
+    List<dynamic> alarms = jsonDecode(storedString);
+    final now = DateTime.now();
 
-      // Schedule notifications
-      await _scheduleDailyNotification(
-        id: morningNotificationId,
-        hour: morningHour,
-        minute: morningMinute,
-        title: '🌅 Morning Hydration Reminder',
-        body: 'Start your day right! Time to drink some water.',
-      );
+    for (var alarm in alarms) {
+      final DateTime scheduledTime = DateTime.parse(alarm['time']);
 
-      await _scheduleDailyNotification(
-        id: afternoonNotificationId,
-        hour: afternoonHour,
-        minute: afternoonMinute,
-        title: '☀️ Afternoon Check-in',
-        body: 'Keep up the good work! Don\'t forget to hydrate.',
-      );
-
-      await _scheduleDailyNotification(
-        id: eveningNotificationId,
-        hour: eveningHour,
-        minute: eveningMinute,
-        title: '🌙 Evening Reminder',
-        body: 'Almost done for the day! Time for some water.',
-      );
-
-      print('✅ Notifications enabled and scheduled');
-    } catch (e) {
-      print('❌ Failed to enable notifications: $e');
-      rethrow;
-    }
-  }
-
-  /// Disable notifications
-  Future<void> disableNotifications() async {
-    try {
-      await cancelAllNotifications();
-
-      await _db.updateProfile({'notificationsEnabled': false});
-
-      print('✅ Notifications disabled');
-    } catch (e) {
-      print('❌ Failed to disable notifications: $e');
-      rethrow;
-    }
-  }
-
-  /// Update notification times
-  Future<void> updateNotificationTimes({
-    required int morningHour,
-    required int morningMinute,
-    required int afternoonHour,
-    required int afternoonMinute,
-    required int eveningHour,
-    required int eveningMinute,
-  }) async {
-    try {
-      // Save to database
-      await _db.updateProfile({
-        'morningTime': '$morningHour:$morningMinute',
-        'afternoonTime': '$afternoonHour:$afternoonMinute',
-        'eveningTime': '$eveningHour:$eveningMinute',
-      });
-
-      // Reschedule notifications
-      await _scheduleDailyNotification(
-        id: morningNotificationId,
-        hour: morningHour,
-        minute: morningMinute,
-        title: '🌅 Morning Hydration Reminder',
-        body: 'Start your day right! Time to drink some water.',
-      );
-
-      await _scheduleDailyNotification(
-        id: afternoonNotificationId,
-        hour: afternoonHour,
-        minute: afternoonMinute,
-        title: '☀️ Afternoon Check-in',
-        body: 'Keep up the good work! Don\'t forget to hydrate.',
-      );
-
-      await _scheduleDailyNotification(
-        id: eveningNotificationId,
-        hour: eveningHour,
-        minute: eveningMinute,
-        title: '🌙 Evening Reminder',
-        body: 'Almost done for the day! Time for some water.',
-      );
-
-      print('✅ Notification times updated');
-    } catch (e) {
-      print('❌ Failed to update notification times: $e');
-      rethrow;
-    }
-  }
-
-  /// Cancel all scheduled notifications
-  Future<void> cancelAllNotifications() async {
-    try {
-      await _notifications.cancelAll();
-      print('✅ All notifications cancelled');
-    } catch (e) {
-      print('❌ Failed to cancel notifications: $e');
-    }
-  }
-
-  /// Get notification settings from database
-  Future<Map<String, dynamic>> getNotificationSettings() async {
-    try {
-      final profile = await _db.getProfile();
-
-      return {
-        'enabled': profile?['notificationsEnabled'] ?? false,
-        'morningTime': _parseTime(profile?['morningTime'] ?? '9:0'),
-        'afternoonTime': _parseTime(profile?['afternoonTime'] ?? '13:0'),
-        'eveningTime': _parseTime(profile?['eveningTime'] ?? '18:0'),
-      };
-    } catch (e) {
-      print('❌ Failed to get notification settings: $e');
-      return {
-        'enabled': false,
-        'morningTime': _TimeOfDay(9, 0),
-        'afternoonTime': _TimeOfDay(13, 0),
-        'eveningTime': _TimeOfDay(18, 0),
-      };
-    }
-  }
-
-  // ============================================
-  // HELPERS
-  // ============================================
-
-  /// Request notification permission (Android 13+)
-  Future<void> _requestPermission() async {
-    try {
-      final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
-          _notifications
-              .resolvePlatformSpecificImplementation<
-                AndroidFlutterLocalNotificationsPlugin
-              >();
-
-      if (androidImplementation != null) {
-        await androidImplementation.requestNotificationsPermission();
+      if (scheduledTime.isAfter(now)) {
+        await _plugin.zonedSchedule(
+          alarm['id'],
+          alarm['title'],
+          alarm['body'],
+          tz.TZDateTime.from(scheduledTime, tz.local),
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'critical_channel_id',
+              'Critical Reminders',
+              importance: Importance.max,
+              priority: Priority.high,
+              audioAttributesUsage: AudioAttributesUsage.alarm,
+              category: AndroidNotificationCategory.alarm,
+              fullScreenIntent: true,
+            ),
+          ),
+          androidScheduleMode: AndroidScheduleMode.alarmClock,
+        );
       }
-    } catch (e) {
-      print('⚠️ Permission request not available: $e');
     }
   }
 
-  /// Handle notification tap
-  void _onNotificationTapped(NotificationResponse response) {
-    print('Notification tapped: ${response.payload}');
-    // TODO: Navigate to water logging screen or home
+  /// 5. CANCEL
+  Future<void> cancelAlarm(int id) async {
+    await _plugin.cancel(id);
+    await _removeAlarmFromDisk(id);
   }
 
-  /// Parse time string to TimeOfDay-like object
-  _TimeOfDay _parseTime(String timeString) {
-    final parts = timeString.split(':');
-    return _TimeOfDay(int.parse(parts[0]), int.parse(parts[1]));
+  // --- PRIVATE HELPERS ---
+
+  Future<void> _createCriticalChannel() async {
+    const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      'critical_channel_id',
+      'Critical Reminders',
+      description: 'Used for important medical reminders',
+      importance: Importance.max,
+      playSound: true,
+      audioAttributesUsage: AudioAttributesUsage.alarm,
+    );
+
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(channel);
   }
-}
 
-// Simple TimeOfDay replacement for service
-class _TimeOfDay {
-  final int hour;
-  final int minute;
+  Future<void> _saveAlarmToDisk(
+    int id,
+    String title,
+    String body,
+    DateTime time,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    List<Map<String, dynamic>> currentAlarms = await _getStoredAlarms();
+    currentAlarms.removeWhere((e) => e['id'] == id);
+    currentAlarms.add({
+      'id': id,
+      'title': title,
+      'body': body,
+      'time': time.toIso8601String(),
+    });
+    await prefs.setString(_storageKey, jsonEncode(currentAlarms));
+  }
 
-  _TimeOfDay(this.hour, this.minute);
+  Future<void> _removeAlarmFromDisk(int id) async {
+    final prefs = await SharedPreferences.getInstance();
+    List<Map<String, dynamic>> currentAlarms = await _getStoredAlarms();
+    currentAlarms.removeWhere((e) => e['id'] == id);
+    await prefs.setString(_storageKey, jsonEncode(currentAlarms));
+  }
+
+  Future<List<Map<String, dynamic>>> _getStoredAlarms() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? storedString = prefs.getString(_storageKey);
+    return storedString == null
+        ? []
+        : List<Map<String, dynamic>>.from(jsonDecode(storedString));
+  }
 }
