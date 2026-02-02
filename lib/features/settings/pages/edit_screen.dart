@@ -1,8 +1,7 @@
-// features/settings/screens/edit_profile_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'edit_profile_repo.dart';
+import 'edit_profile_repo.dart'; // Ensure path is correct
 
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({Key? key}) : super(key: key);
@@ -22,28 +21,26 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   }
 
   // --- DATA LOADING ---
-
   Future<void> _loadProfileData() async {
-    // Fetch data directly from DB Service (Bypassing AuthProvider to avoid router resets)
     final data = await ref.read(userDbServiceProvider).getUserProfile();
-
     if (mounted) {
       setState(() {
         _profile = data ?? {};
+        // Ensure default climate if missing
+        if (!_profile.containsKey('climate')) {
+          _profile['climate'] = 'moderate';
+        }
         _isLoading = false;
       });
     }
   }
 
   // --- SAVE ACTIONS ---
-
   Future<void> _updateField(Map<String, dynamic> updates) async {
     setState(() => _isLoading = true);
     try {
-      // 1. Save to DB
       await ref.read(userDbServiceProvider).updateUserProfile(updates);
 
-      // 2. Update Local State (So UI refreshes instantly)
       if (mounted) {
         setState(() {
           _profile = {..._profile, ...updates};
@@ -54,6 +51,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
           const SnackBar(
             content: Text('Profile updated'),
             backgroundColor: Colors.green,
+            duration: Duration(seconds: 1),
           ),
         );
       }
@@ -67,23 +65,46 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     }
   }
 
-  // --- HELPER: GOAL CALCULATION ---
+  // --- HELPER: GOAL CALCULATION (MATCHING AUTH PROVIDER) ---
   int _calculateGoal({
     required double weight,
     required String activityLevel,
     required List<String> conditions,
+    required String climate, // <--- Added Climate
   }) {
-    // Base: 35ml per kg
+    // 1. Base: 35ml per kg
     double goal = weight * 35;
 
-    // Activity Multiplier
-    if (activityLevel == 'moderate') goal += 500;
-    if (activityLevel == 'high') goal += 1000;
+    // 2. Activity Multiplier
+    if (activityLevel == 'high')
+      goal *= 1.5;
+    else if (activityLevel == 'moderate')
+      goal *= 1.2;
 
-    // Health Conditions
-    if (conditions.contains('pregnant')) goal += 300;
+    // 3. Climate Adjustment
+    switch (climate) {
+      case 'hot':
+        goal += 500;
+        break;
+      case 'cold':
+        goal += 300;
+        break;
+      default:
+        break;
+    }
 
-    return goal.round();
+    // 4. Health Conditions
+    if (conditions.contains('kidney')) {
+      goal *= 0.85;
+    } else if (conditions.contains('pregnant')) {
+      goal += 350;
+    }
+
+    // 5. Rounding
+    if (goal < 1500) goal = 1500;
+    if (goal > 5000) goal = 5000;
+
+    return (goal / 50).round() * 50;
   }
 
   // --- DIALOGS ---
@@ -145,15 +166,18 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             onPressed: () {
               final weight = double.tryParse(controller.text);
               if (weight == null || weight < 20 || weight > 300) return;
-
               Navigator.pop(context);
               _updateField({'weight': weight});
 
-              // Trigger recalculation check
+              // Trigger Recalc
+              final conditions = List<String>.from(
+                _profile['healthConditions'] ?? [],
+              );
               _checkRecalculation(
                 weight,
                 _profile['activityLevel'] ?? 'moderate',
-                [],
+                conditions,
+                _profile['climate'] ?? 'moderate',
               );
             },
             child: const Text('Save'),
@@ -165,7 +189,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   void _showEditActivityDialog() {
     String selected = _profile['activityLevel'] ?? 'moderate';
-
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -207,9 +230,77 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 Navigator.pop(context);
                 _updateField({'activityLevel': selected});
 
-                // Trigger recalculation check
+                // Trigger Recalc
                 final weight = (_profile['weight'] as num?)?.toDouble() ?? 70.0;
-                _checkRecalculation(weight, selected, []);
+                final conditions = List<String>.from(
+                  _profile['healthConditions'] ?? [],
+                );
+                _checkRecalculation(
+                  weight,
+                  selected,
+                  conditions,
+                  _profile['climate'] ?? 'moderate',
+                );
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ NEW: CLIMATE DIALOG
+  void _showEditClimateDialog() {
+    String selected = _profile['climate'] ?? 'moderate';
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Climate'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildRadio(
+                setDialogState,
+                'Moderate',
+                'moderate',
+                selected,
+                (val) => selected = val,
+              ),
+              _buildRadio(
+                setDialogState,
+                'Hot / Tropical',
+                'hot',
+                selected,
+                (val) => selected = val,
+              ),
+              _buildRadio(
+                setDialogState,
+                'Cold / Dry',
+                'cold',
+                selected,
+                (val) => selected = val,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _updateField({'climate': selected});
+
+                // Trigger Recalc
+                final weight = (_profile['weight'] as num?)?.toDouble() ?? 70.0;
+                final activity = _profile['activityLevel'] ?? 'moderate';
+                final conditions = List<String>.from(
+                  _profile['healthConditions'] ?? [],
+                );
+                _checkRecalculation(weight, activity, conditions, selected);
               },
               child: const Text('Save'),
             ),
@@ -227,26 +318,15 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Edit Daily Goal'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Recommended: 2000 - 3000 ml',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: controller,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Goal (ml)',
-                border: OutlineInputBorder(),
-                suffixText: 'ml',
-              ),
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            ),
-          ],
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Goal (ml)',
+            border: OutlineInputBorder(),
+            suffixText: 'ml',
+          ),
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
         ),
         actions: [
           TextButton(
@@ -256,15 +336,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
           ElevatedButton(
             onPressed: () {
               final val = int.tryParse(controller.text);
-              if (val == null || val < 500 || val > 10000) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Please enter a valid goal (500-10000)'),
-                  ),
-                );
-                return;
-              }
-
+              if (val == null || val < 500 || val > 10000) return;
               Navigator.pop(context);
               _updateField({'dailyGoal': val});
             },
@@ -286,27 +358,27 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       title: Text(title),
       value: value,
       groupValue: groupValue,
-      onChanged: (val) {
-        setDialogState(() => onChanged(val!));
-      },
+      onChanged: (val) => setDialogState(() => onChanged(val!)),
     );
   }
 
   // --- RECALCULATION LOGIC ---
-
   void _checkRecalculation(
     double weight,
     String activity,
     List<String> conditions,
+    String climate, // <--- Check with climate
   ) {
     final currentGoal = (_profile['dailyGoal'] as num?)?.toInt() ?? 2000;
+
+    // Calculate new goal using updated logic
     final newGoal = _calculateGoal(
       weight: weight,
       activityLevel: activity,
       conditions: conditions,
+      climate: climate,
     );
 
-    // Only prompt if the difference is significant (> 100ml)
     if ((currentGoal - newGoal).abs() > 100) {
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) _showRecalculateDialog(currentGoal, newGoal);
@@ -320,7 +392,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Update Goal?'),
         content: Text(
-          'Based on your new profile, your recommended hydration goal is $newGoal ml (was $oldGoal ml).',
+          'Based on your changes, your recommended hydration goal is $newGoal ml (was $oldGoal ml).',
         ),
         actions: [
           TextButton(
@@ -340,21 +412,16 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   }
 
   // --- UI BUILD ---
-
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
+    if (_isLoading)
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
-    // Safely extract values
     final name = _profile['name'] as String? ?? 'User';
     final email = _profile['email'] as String? ?? 'No Email';
     final weight = _profile['weight']?.toString() ?? 'Not set';
     final activity = _profile['activityLevel'] ?? 'moderate';
+    final climate = _profile['climate'] ?? 'moderate';
     final goal = _profile['dailyGoal']?.toString() ?? '2000';
 
     return Scaffold(
@@ -376,11 +443,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Profile Header
             _buildProfileHeader(name, email),
             const SizedBox(height: 32),
-
-            // Personal Info Section
             _buildSectionTitle('Personal Information'),
             const SizedBox(height: 12),
             Container(
@@ -411,17 +475,20 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     Icons.directions_run,
                     _showEditActivityDialog,
                   ),
+                  _buildDivider(),
+                  // ✅ Added Climate Tile
+                  _buildInfoTile(
+                    'Climate',
+                    climate.toString().toUpperCase(),
+                    Icons.wb_sunny_outlined,
+                    _showEditClimateDialog,
+                  ),
                 ],
               ),
             ),
-
             const SizedBox(height: 24),
-
-            // Hydration Goals Section
             _buildSectionTitle('Hydration Goals'),
             const SizedBox(height: 12),
-
-            // Tappable Goal Card
             Material(
               color: Colors.transparent,
               child: InkWell(
@@ -437,7 +504,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Left Side: Label + Edit Icon
                       Row(
                         children: [
                           const Text(
@@ -452,8 +518,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                           ),
                         ],
                       ),
-
-                      // Right Side: Big Number
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.baseline,
                         textBaseline: TextBaseline.alphabetic,

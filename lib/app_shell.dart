@@ -7,29 +7,32 @@ class AppShell extends StatelessWidget {
   const AppShell({Key? key, required this.child}) : super(key: key);
 
   void _onTap(BuildContext context, int index) {
-    // Navigate to corresponding route
     switch (index) {
       case 0:
         context.go('/');
-        break;
+        break; // Home
       case 1:
         context.go('/analytics');
-        break;
+        break; // Analytics
       case 2:
-        context.go('/goals');
-        break;
+        context.go('/cabinet');
+        break; // ✅ NEW Cabinet Tab
       case 3:
+        context.go('/goals');
+        break; // Goals
+      case 4:
         context.go('/setting');
-        break;
+        break; // Settings
     }
   }
 
   int _calculateSelectedIndex(BuildContext context) {
     final String location = GoRouterState.of(context).uri.toString();
     if (location.startsWith('/analytics')) return 1;
-    if (location.startsWith('/goals')) return 2;
-    if (location.startsWith('/setting')) return 3;
-    return 0; // default to home
+    if (location.startsWith('/cabinet')) return 2; // ✅ NEW
+    if (location.startsWith('/goals')) return 3;
+    if (location.startsWith('/setting')) return 4;
+    return 0;
   }
 
   @override

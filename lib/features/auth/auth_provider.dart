@@ -44,18 +44,15 @@ class Auth extends _$Auth {
 
   @override
   Future<AuthState> build() async {
-    // Show loading state implicitly by returning the appropriate AuthState
+    // Show loading state implicitly
     state = AsyncValue.data(AuthState(isLoading: true));
 
+    // Check if user is logged in via Firebase
     if (_authService.isLoggedIn) {
-      print('🔄 User already logged in, syncing from cloud...');
-
       try {
         await _databaseService.syncAllFromCloud();
-        print('✅ Initial sync complete');
       } catch (e) {
         print('⚠️ Initial sync failed: $e');
-        // Continue anyway - might be offline
       }
 
       final profile = await _loadProfile();
@@ -65,8 +62,10 @@ class Auth extends _$Auth {
     return AuthState(isAuthenticated: false);
   }
 
-  // ========== AUTHENTICATION METHODS ==========
-  /// Login with email and password
+  // ===========================================================================
+  // 🔐 AUTHENTICATION METHODS
+  // ===========================================================================
+
   Future<bool> login(String email, String password) async {
     state = AsyncValue.data(state.value!.clearError());
     final validationError = _validateLoginInputs(email, password);
@@ -79,20 +78,12 @@ class Auth extends _$Auth {
     state = AsyncValue.data(state.value!.copyWith(isLoading: true));
 
     try {
-      // 1. Sign in with Firebase
       await _authService.signIn(email.trim(), password);
 
-      // 2. 🔥 SYNC FROM CLOUD - This is the critical fix!
-      print('🔄 Syncing user data from cloud after login...');
+      // Sync cloud data to local Hive
       await _databaseService.syncAllFromCloud();
-      print('✅ Sync complete - profile should be in Hive now');
 
-      // 3. Now load profile from Hive (it's been synced from Firestore)
       final profile = await _loadProfile();
-
-      // 4. Debug log to verify
-      print('📊 Profile loaded: setupCompleted = ${profile.setupCompleted}');
-
       state = AsyncValue.data(
         state.value!.copyWith(
           isAuthenticated: true,
@@ -102,7 +93,6 @@ class Auth extends _$Auth {
       );
       return true;
     } catch (e) {
-      print('❌ Login failed: $e');
       state = AsyncValue.data(
         state.value!.copyWith(isLoading: false, error: _mapAuthError(e)),
       );
@@ -110,7 +100,6 @@ class Auth extends _$Auth {
     }
   }
 
-  /// Sign up with name, email, and password
   Future<bool> signup({
     required String name,
     required String email,
@@ -135,12 +124,15 @@ class Auth extends _$Auth {
     try {
       await _authService.register(email.trim(), password);
 
+      // Initialize new profile with flags set to FALSE
       await _databaseService.saveProfile({
         'name': name.trim(),
         'email': email.trim(),
         'createdAt': DateTime.now().toIso8601String(),
-        'setupCompleted': false,
+        'setupCompleted': false, // Needs Setup
+        'onboardingCompleted': false, // Needs Onboarding
         'healthConditions': <String>[],
+        'climate': 'moderate', // Default climate
       });
 
       final profile = await _loadProfile();
@@ -160,10 +152,8 @@ class Auth extends _$Auth {
     }
   }
 
-  /// Logout user
   Future<void> logout() async {
     state = AsyncValue.data(state.value!.copyWith(isLoading: true));
-
     try {
       await _authService.signOut();
       state = AsyncValue.data(AuthState());
@@ -174,26 +164,16 @@ class Auth extends _$Auth {
     }
   }
 
-  /// Send password reset email
   Future<bool> resetPassword(String email) async {
     state = AsyncValue.data(state.value!.clearError());
-
-    if (email.trim().isEmpty) {
+    if (email.trim().isEmpty || !email.contains('@')) {
       state = AsyncValue.data(
-        state.value!.copyWith(error: 'Email is required'),
-      );
-      return false;
-    }
-
-    if (!email.trim().contains('@')) {
-      state = AsyncValue.data(
-        state.value!.copyWith(error: 'Enter a valid email address'),
+        state.value!.copyWith(error: 'Valid email required'),
       );
       return false;
     }
 
     state = AsyncValue.data(state.value!.copyWith(isLoading: true));
-
     try {
       await _authService.sendPasswordResetEmail(email.trim());
       state = AsyncValue.data(state.value!.copyWith(isLoading: false));
@@ -209,38 +189,47 @@ class Auth extends _$Auth {
     }
   }
 
-  // ========== PROFILE METHODS ==========
+  // ===========================================================================
+  // 🚀 ONBOARDING & SETUP METHODS
+  // ===========================================================================
 
-  /// Load user profile from database (public method)
-  Future<void> loadProfile() async {
+  /// Mark onboarding as complete (Called when user clicks "Get Started")
+  Future<bool> completeOnboarding() async {
+    state = AsyncValue.data(state.value!.copyWith(isLoading: true));
     try {
+      await _databaseService.updateProfile({
+        'onboardingCompleted': true,
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
+
       final profile = await _loadProfile();
-      state = AsyncValue.data(state.value!.copyWith(profile: profile));
+      state = AsyncValue.data(
+        state.value!.copyWith(profile: profile, isLoading: false),
+      );
+      return true;
     } catch (e) {
-      // Profile loading failed, keep current state
-      print('❌ Failed to load profile: $e');
+      state = AsyncValue.data(
+        state.value!.copyWith(
+          isLoading: false,
+          error: 'Failed to save progress',
+        ),
+      );
+      return false;
     }
   }
 
-  /// Complete profile setup (weight, activity, health)
+  /// Complete profile setup with Climate & Health data
   Future<bool> completeProfileSetup({
     required double weight,
     required String activityLevel,
     required List<String> healthConditions,
+    required String climate, // <--- New Param
   }) async {
     state = AsyncValue.data(state.value!.clearError());
 
-    // Validate inputs
     if (weight < 20 || weight > 300) {
       state = AsyncValue.data(
-        state.value!.copyWith(error: 'Weight must be between 20 and 300 kg'),
-      );
-      return false;
-    }
-
-    if (!['low', 'moderate', 'high'].contains(activityLevel)) {
-      state = AsyncValue.data(
-        state.value!.copyWith(error: 'Invalid activity level'),
+        state.value!.copyWith(error: 'Weight must be 20-300 kg'),
       );
       return false;
     }
@@ -248,29 +237,29 @@ class Auth extends _$Auth {
     state = AsyncValue.data(state.value!.copyWith(isLoading: true));
 
     try {
-      // Calculate initial daily goal
+      // Calculate Goal
       final dailyGoal = calculateDailyGoal(
         weight: weight,
         activityLevel: activityLevel,
         healthConditions: healthConditions,
+        climate: climate,
       );
 
-      // Update profile with setup data
+      // Update Database
       await _databaseService.updateProfile({
         'weight': weight,
         'activityLevel': activityLevel,
         'healthConditions': healthConditions,
+        'climate': climate, // Save climate preference
         'dailyGoal': dailyGoal,
         'setupCompleted': true,
         'updatedAt': DateTime.now().toIso8601String(),
       });
 
-      // Reload profile
       final profile = await _loadProfile();
       state = AsyncValue.data(
         state.value!.copyWith(profile: profile, isLoading: false),
       );
-
       return true;
     } catch (e) {
       state = AsyncValue.data(
@@ -283,49 +272,14 @@ class Auth extends _$Auth {
     }
   }
 
-  /// Update profile field(s)
-  Future<bool> updateProfile(Map<String, dynamic> updates) async {
-    state = AsyncValue.data(state.value!.copyWith(isLoading: true));
-
-    try {
-      // Send Map to DatabaseService
-      await _databaseService.updateProfile({
-        ...updates,
-        'updatedAt': DateTime.now().toIso8601String(),
-      });
-
-      // Reload profile (converts to Model)
-      final profile = await _loadProfile();
-      state = AsyncValue.data(
-        state.value!.copyWith(profile: profile, isLoading: false),
-      );
-
-      return true;
-    } catch (e) {
-      state = AsyncValue.data(
-        state.value!.copyWith(
-          isLoading: false,
-          error: 'Failed to update profile',
-        ),
-      );
-      return false;
-    }
-  }
-
-  /// Recalculate daily goal based on current profile
+  /// Recalculate goal (e.g., after editing profile)
   Future<bool> recalculateDailyGoal() async {
     final profile = state.value?.profile;
-
-    if (profile == null) {
+    if (profile == null ||
+        profile.weight == null ||
+        profile.activityLevel == null) {
       state = AsyncValue.data(
-        state.value!.copyWith(error: 'Profile not loaded'),
-      );
-      return false;
-    }
-
-    if (profile.weight == null || profile.activityLevel == null) {
-      state = AsyncValue.data(
-        state.value!.copyWith(error: 'Profile data incomplete'),
+        state.value!.copyWith(error: 'Profile incomplete'),
       );
       return false;
     }
@@ -333,10 +287,15 @@ class Auth extends _$Auth {
     state = AsyncValue.data(state.value!.copyWith(isLoading: true));
 
     try {
+      // Fetch fresh profile to get saved climate
+      final profileMap = await _databaseService.getProfile();
+      final climate = profileMap?['climate'] ?? 'moderate';
+
       final newGoal = calculateDailyGoal(
         weight: profile.weight!,
         activityLevel: profile.activityLevel!,
         healthConditions: profile.healthConditions,
+        climate: climate,
       );
 
       await _databaseService.updateProfile({
@@ -348,74 +307,73 @@ class Auth extends _$Auth {
       state = AsyncValue.data(
         state.value!.copyWith(profile: updatedProfile, isLoading: false),
       );
-
       return true;
     } catch (e) {
       state = AsyncValue.data(
-        state.value!.copyWith(
-          isLoading: false,
-          error: 'Failed to recalculate goal',
-        ),
+        state.value!.copyWith(isLoading: false, error: 'Recalculation failed'),
       );
       return false;
     }
   }
 
-  /// Calculate daily hydration goal
+  // ===========================================================================
+  // 🧠 CALCULATION LOGIC (3-State Climate + Medical)
+  // ===========================================================================
+
   int calculateDailyGoal({
     required double weight,
     required String activityLevel,
     required List<String> healthConditions,
+    required String climate,
   }) {
-    // Activity multipliers (hidden from user)
-    final multipliers = {'low': 1.0, 'moderate': 1.2, 'high': 1.5};
+    // 1. Base Calculation (35ml per kg)
+    double goal = weight * 35;
 
-    // Base calculation: weight × 35 × activity multiplier
-    double goal = weight * 35 * (multipliers[activityLevel] ?? 1.0);
+    // 2. Activity Multiplier
+    if (activityLevel == 'high')
+      goal *= 1.5;
+    else if (activityLevel == 'moderate')
+      goal *= 1.2;
 
-    // Health adjustments
-    if (healthConditions.contains('diabetic')) {
-      goal *= 1.15; // +15%
+    // 3. Climate Adjustment
+    switch (climate) {
+      case 'hot':
+        goal += 500; // Sweat loss
+        break;
+      case 'cold':
+        goal += 300; // Respiratory loss & Cold-induced diuresis
+        break;
+      default:
+        break; // Moderate = no change
     }
-    if (healthConditions.contains('pregnant')) {
-      goal += 300; // +300ml flat
-    }
+
+    // 4. Medical Safety Adjustments (Prioritized)
     if (healthConditions.contains('kidney')) {
-      goal *= 1.10; // +10%
+      // PRIORITY 1: Safety (Reduce goal)
+      goal *= 0.85;
+    } else if (healthConditions.contains('pregnant')) {
+      // PRIORITY 2: Growth (Increase goal)
+      goal += 350;
     }
+    // Diabetic logic is neutral (optimal standard hydration)
 
-    // Apply floor and ceiling
+    // 5. Limits & Rounding (Nearest 50ml)
     if (goal < 1500) goal = 1500;
     if (goal > 5000) goal = 5000;
 
-    return goal.round();
+    return (goal / 50).round() * 50;
   }
 
-  /// Check if critical profile values changed (triggers recalc prompt)
-  bool shouldPromptRecalculation(UserProfile oldProfile) {
-    final newProfile = state.value?.profile;
-    if (newProfile == null) return false;
+  // ===========================================================================
+  // 🛠️ PRIVATE HELPERS & VALIDATORS
+  // ===========================================================================
 
-    // Check if critical fields changed
-    return oldProfile.weight != newProfile.weight ||
-        oldProfile.activityLevel != newProfile.activityLevel ||
-        oldProfile.healthConditions != newProfile.healthConditions;
-  }
-
-  /// Clear error message
-  void clearError() {
-    state = AsyncValue.data(state.value!.clearError());
-  }
-
-  // ========== PRIVATE HELPERS ==========
-
-  /// Load profile from database (private helper)
   Future<UserProfile> _loadProfile() async {
     try {
       final profileMap = await _databaseService.getProfile();
       return UserProfile.fromJson(profileMap!);
     } catch (e) {
-      // Fallback for new user
+      // Fallback
       return UserProfile(
         name: '',
         email: _authService.userEmail ?? '',
@@ -424,7 +382,36 @@ class Auth extends _$Auth {
     }
   }
 
-  // ========== VALIDATORS ==========
+  void clearError() => state = AsyncValue.data(state.value!.clearError());
+
+  Future<bool> updateProfile(Map<String, dynamic> updates) async {
+    state = AsyncValue.data(state.value!.copyWith(isLoading: true));
+    try {
+      await _databaseService.updateProfile({
+        ...updates,
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
+      final profile = await _loadProfile();
+      state = AsyncValue.data(
+        state.value!.copyWith(profile: profile, isLoading: false),
+      );
+      return true;
+    } catch (e) {
+      state = AsyncValue.data(
+        state.value!.copyWith(isLoading: false, error: 'Update failed'),
+      );
+      return false;
+    }
+  }
+
+  bool shouldPromptRecalculation(UserProfile oldProfile) {
+    final newProfile = state.value?.profile;
+    if (newProfile == null) return false;
+    return oldProfile.weight != newProfile.weight ||
+        oldProfile.activityLevel != newProfile.activityLevel ||
+        oldProfile.healthConditions.length !=
+            newProfile.healthConditions.length;
+  }
 
   String? _validateLoginInputs(String email, String password) {
     if (email.trim().isEmpty) return 'Email is required';
@@ -437,35 +424,21 @@ class Auth extends _$Auth {
     String name,
     String email,
     String password,
-    String confirmPassword,
+    String confirm,
   ) {
     if (name.trim().isEmpty) return 'Name is required';
-    if (name.trim().length < 2) return 'Name must be at least 2 characters';
-    if (name.trim().length > 50) return 'Name is too long';
-    if (email.trim().isEmpty) return 'Email is required';
-    if (!email.contains('@')) return 'Enter a valid email address';
-    if (password.length < 6) return 'Password must be at least 6 characters';
-    if (password != confirmPassword) return 'Passwords do not match';
+    if (email.trim().isEmpty || !email.contains('@'))
+      return 'Valid email required';
+    if (password.length < 6) return 'Min 6 characters required';
+    if (password != confirm) return 'Passwords do not match';
     return null;
   }
 
   String _mapAuthError(dynamic error) {
     final e = error.toString().toLowerCase();
-    if (e.contains('user-not-found')) return 'No account found with this email';
     if (e.contains('wrong-password')) return 'Incorrect password';
-    if (e.contains('invalid-email')) return 'Invalid email address';
-    if (e.contains('user-disabled')) return 'This account has been disabled';
-    if (e.contains('email-already-in-use')) {
-      return 'This email is already registered';
-    }
-    if (e.contains('weak-password')) return 'Password is too weak';
+    if (e.contains('email-already-in-use')) return 'Email already registered';
     if (e.contains('network')) return 'No internet connection';
-    if (e.contains('too-many-requests')) {
-      return 'Too many attempts. Please try again later';
-    }
-    if (e.contains('operation-not-allowed')) {
-      return 'Email/password accounts are not enabled';
-    }
     return 'Authentication failed. Please try again.';
   }
 }

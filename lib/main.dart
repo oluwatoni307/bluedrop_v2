@@ -29,7 +29,13 @@ void main() async {
 
   print('🗄️ Initializing Database...');
   await DatabaseService().initialize(
-    boxes: ['user_profile', 'waterLogs', 'reminders', 'challenges'],
+    boxes: [
+      'user_profile',
+      'waterLogs',
+      'reminders',
+      'challenges',
+      'user_containers',
+    ],
   );
   await SeedData.injectDummyChallenges();
 
@@ -40,8 +46,7 @@ void main() async {
   // 1. Initialize the Engine (Channels, Permissions Config)
   await NotificationManager().init();
 
-  // 2. REBOOT RECOVERY (The Safety Net)
-  // This checks your disk storage and re-schedules alarms if the phone was restarted
+  // 2. Restore Scheduled Alarms from DB
   print('♻️ Restoring Scheduled Alarms...');
   await NotificationManager().restoreScheduledAlarms();
   await scheduleTestAlarms();

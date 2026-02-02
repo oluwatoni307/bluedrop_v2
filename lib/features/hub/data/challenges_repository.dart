@@ -97,4 +97,54 @@ class ChallengesRepository {
     final updated = challenge.copyWith(completedDates: newDates);
     await _db.updateInCollection(_boxName, challenge.id, updated.toMap());
   }
+
+  // challenges_repository.dart
+
+  // ... existing code ...
+
+  /// Replaces only the 'Available' challenges with new AI recommendations.
+  /// Preserves 'Active' and 'Completed' challenges.
+  Future<void> replaceAvailableChallenges(
+    List<Challenge> newRecommendations,
+  ) async {
+    // 1. Get ALL current data
+    final allData = await _db.getAllFromCollection(_boxName);
+    final allChallenges = allData.map((e) => Challenge.fromMap(e)).toList();
+
+    // 2. Filter out the ones we want to KEEP (Active & Completed)
+    final _ = allChallenges
+        .where(
+          (c) =>
+              c.status == ChallengeStatus.active ||
+              c.status == ChallengeStatus.completed,
+        )
+        .toList();
+
+    // 3. Prepare the new list (Keepers + New Recommendations)
+    // Note: Ensure new recommendations are set to 'available' status
+    final validRecommendations = newRecommendations
+        .map((c) => c.copyWith(status: ChallengeStatus.available))
+        .toList();
+
+    // 4. clear collection and rewrite?
+    // Hive doesn't have a "delete where". It's safer to clear and rewrite
+    // OR delete specific IDs.
+    // Strategy: Delete ONLY the old "available" ones first.
+
+    final idsToDelete = allChallenges
+        .where((c) => c.status == ChallengeStatus.available)
+        .map((c) => c.id)
+        .toList();
+
+    for (var id in idsToDelete) {
+      await _db.deleteFromCollection(_boxName, id);
+    }
+
+    // 5. Add the new ones
+    for (var challenge in validRecommendations) {
+      // Use updateInCollection or addToCollection depending on if you have IDs
+      // Assuming AI generates IDs, we use update (upsert)
+      await _db.saveDocument(_boxName, challenge.id, challenge.toMap());
+    }
+  }
 }

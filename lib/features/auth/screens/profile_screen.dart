@@ -1,420 +1,131 @@
-// lib/features/auth/screens/profile_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../auth_provider.dart';
-import '../auth_model.dart';
-import '../auth_widgets.dart';
-import 'package:go_router/go_router.dart';
+import '../auth_widgets.dart'; // Ensure ActivitySelector, HealthConditionCheckbox etc are here
 
-class ProfileScreen extends ConsumerStatefulWidget {
-  const ProfileScreen({Key? key}) : super(key: key);
+class ProfileSetupScreen extends ConsumerStatefulWidget {
+  const ProfileSetupScreen({Key? key}) : super(key: key);
 
   @override
-  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+  ConsumerState<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
 }
 
-class _ProfileScreenState extends ConsumerState<ProfileScreen> {
+class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
+  final _weightController = TextEditingController();
+
+  // State Variables
+  String _selectedActivity = 'moderate';
+  String _selectedClimate = 'moderate'; // <--- NEW: Climate State
+
+  final Map<String, bool> _healthConditions = {
+    'diabetic': false,
+    'pregnant': false,
+    'kidney': false,
+    'none': false,
+  };
+
+  int? _estimatedGoal;
+
   @override
-  void initState() {
-    super.initState();
-    // Load profile when screen opens
-    Future.microtask(() => ref.read(authProvider.notifier).loadProfile());
+  void dispose() {
+    _weightController.dispose();
+    super.dispose();
   }
 
-  void _showEditWeightDialog(UserProfile profile) {
-    final controller = TextEditingController(
-      text: profile.weight?.toString() ?? '',
-    );
+  // --- CALCULATION LOGIC ---
+  void _calculateEstimatedGoal() {
+    final weightText = _weightController.text.trim();
+    if (weightText.isEmpty) {
+      setState(() => _estimatedGoal = null);
+      return;
+    }
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Weight'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,1}')),
-          ],
-          decoration: const InputDecoration(
-            labelText: 'Weight (kg)',
-            hintText: '70',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final weight = double.tryParse(controller.text);
-              if (weight == null || weight < 20 || weight > 300) {
-                _showError('Weight must be between 20 and 300 kg');
-                return;
-              }
+    final weight = double.tryParse(weightText);
+    if (weight == null || weight < 20 || weight > 300) {
+      setState(() => _estimatedGoal = null);
+      return;
+    }
 
-              Navigator.pop(context);
+    final selectedConditions = _healthConditions.entries
+        .where((e) => e.value && e.key != 'none')
+        .map((e) => e.key)
+        .toList();
 
-              // Store old profile for comparison
-              final oldProfile = profile;
-
-              // Update weight
-              final success = await ref
-                  .read(authProvider.notifier)
-                  .updateProfile({'weight': weight});
-
-              if (success && mounted) {
-                _showSuccess('Weight updated');
-
-                // Check if recalculation prompt is needed
-                final newProfile = ref.read(authProvider).value?.profile;
-                if (newProfile != null &&
-                    ref
-                        .read(authProvider.notifier)
-                        .shouldPromptRecalculation(oldProfile)) {
-                  _showRecalculationPrompt(oldProfile.dailyGoal ?? 0);
-                }
-              }
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showEditActivityDialog(UserProfile profile) {
-    String selectedActivity = profile.activityLevel ?? 'moderate';
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Edit Activity Level'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              RadioListTile<String>(
-                title: const Text('Low (Sedentary)'),
-                subtitle: const Text('Little to no exercise'),
-                value: 'low',
-                groupValue: selectedActivity,
-                onChanged: (val) {
-                  setDialogState(() => selectedActivity = val!);
-                },
-              ),
-              RadioListTile<String>(
-                title: const Text('Moderate (Active)'),
-                subtitle: const Text('Exercise 3-5 days/week'),
-                value: 'moderate',
-                groupValue: selectedActivity,
-                onChanged: (val) {
-                  setDialogState(() => selectedActivity = val!);
-                },
-              ),
-              RadioListTile<String>(
-                title: const Text('High (Very Active)'),
-                subtitle: const Text('Intense exercise 6-7 days/week'),
-                value: 'high',
-                groupValue: selectedActivity,
-                onChanged: (val) {
-                  setDialogState(() => selectedActivity = val!);
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(context);
-
-                // Store old profile for comparison
-                final oldProfile = profile;
-
-                // Update activity level
-                final success = await ref
-                    .read(authProvider.notifier)
-                    .updateProfile({'activityLevel': selectedActivity});
-
-                if (success && mounted) {
-                  _showSuccess('Activity level updated');
-
-                  // Check if recalculation prompt is needed
-                  final newProfile = ref.read(authProvider).value?.profile;
-                  if (newProfile != null &&
-                      ref
-                          .read(authProvider.notifier)
-                          .shouldPromptRecalculation(oldProfile)) {
-                    _showRecalculationPrompt(oldProfile.dailyGoal ?? 0);
-                  }
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showEditHealthDialog(UserProfile profile) {
-    final Map<String, bool> conditions = {
-      'diabetic': profile.healthConditions.contains('diabetic'),
-      'pregnant': profile.healthConditions.contains('pregnant'),
-      'kidney': profile.healthConditions.contains('kidney'),
-      'none': profile.healthConditions.isEmpty,
-    };
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Edit Health Conditions'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CheckboxListTile(
-                title: const Text('Diabetic'),
-                value: conditions['diabetic'],
-                onChanged: (val) {
-                  setDialogState(() {
-                    conditions['diabetic'] = val ?? false;
-                    if (val == true) conditions['none'] = false;
-                    if (!conditions.values.any((v) => v)) {
-                      conditions['none'] = true;
-                    }
-                  });
-                },
-              ),
-              CheckboxListTile(
-                title: const Text('Pregnant'),
-                value: conditions['pregnant'],
-                onChanged: (val) {
-                  setDialogState(() {
-                    conditions['pregnant'] = val ?? false;
-                    if (val == true) conditions['none'] = false;
-                    if (!conditions.values.any((v) => v)) {
-                      conditions['none'] = true;
-                    }
-                  });
-                },
-              ),
-              CheckboxListTile(
-                title: const Text('Kidney Issues'),
-                value: conditions['kidney'],
-                onChanged: (val) {
-                  setDialogState(() {
-                    conditions['kidney'] = val ?? false;
-                    if (val == true) conditions['none'] = false;
-                    if (!conditions.values.any((v) => v)) {
-                      conditions['none'] = true;
-                    }
-                  });
-                },
-              ),
-              CheckboxListTile(
-                title: const Text('None'),
-                value: conditions['none'],
-                onChanged: (val) {
-                  setDialogState(() {
-                    if (val == true) {
-                      conditions.forEach((key, _) {
-                        conditions[key] = key == 'none';
-                      });
-                    }
-                  });
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(context);
-
-                // Get selected conditions (excluding "none")
-                final selected = conditions.entries
-                    .where((e) => e.value && e.key != 'none')
-                    .map((e) => e.key)
-                    .toList();
-
-                // Store old profile for comparison
-                final oldProfile = profile;
-
-                // Update health conditions
-                final success = await ref
-                    .read(authProvider.notifier)
-                    .updateProfile({'healthConditions': selected});
-
-                if (success && mounted) {
-                  _showSuccess('Health conditions updated');
-
-                  // Check if recalculation prompt is needed
-                  final newProfile = ref.read(authProvider).value?.profile;
-                  if (newProfile != null &&
-                      ref
-                          .read(authProvider.notifier)
-                          .shouldPromptRecalculation(oldProfile)) {
-                    _showRecalculationPrompt(oldProfile.dailyGoal ?? 0);
-                  }
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showRecalculationPrompt(int oldGoal) {
-    final authAsync = ref.read(authProvider);
-
-    authAsync.whenData((authState) {
-      final profile = authState.profile;
-      if (profile == null) return;
-
-      // Calculate estimated new goal
-      final estimatedNewGoal = ref
-          .read(authProvider.notifier)
-          .calculateDailyGoal(
-            weight: profile.weight ?? 70,
-            activityLevel: profile.activityLevel ?? 'moderate',
-            healthConditions: profile.healthConditions,
-          );
-
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Recalculate Goal?'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Your profile has changed. Would you like to recalculate your daily hydration goal?',
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Current goal:'),
-                        Text(
-                          '${oldGoal}ml',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Estimated new goal:'),
-                        Text(
-                          '${estimatedNewGoal}ml',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Later'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                await _handleRecalculateGoal();
-              },
-              child: const Text('Yes, Recalculate'),
-            ),
-          ],
-        ),
-      );
-    });
-  }
-
-  Future<void> _handleRecalculateGoal() async {
-    final success = await ref
+    // Call provider with all factors including climate
+    final goal = ref
         .read(authProvider.notifier)
-        .recalculateDailyGoal();
+        .calculateDailyGoal(
+          weight: weight,
+          activityLevel: _selectedActivity,
+          healthConditions: selectedConditions,
+          climate: _selectedClimate, // <--- NEW PARAMETER
+        );
 
-    if (success && mounted) {
-      final authAsync = ref.read(authProvider);
-      authAsync.whenData((state) {
-        final newGoal = state.profile?.dailyGoal;
-        _showSuccess('Goal updated to ${newGoal}ml');
-      });
-    }
+    setState(() => _estimatedGoal = goal);
   }
 
-  Future<void> _handleLogout() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
-    );
+  // --- HEALTH CHECKBOX LOGIC ---
+  void _onHealthConditionChanged(String condition, bool? value) {
+    setState(() {
+      if (condition == 'none') {
+        if (value == true) {
+          _healthConditions.forEach((key, _) {
+            _healthConditions[key] = key == 'none';
+          });
+        }
+      } else {
+        _healthConditions[condition] = value ?? false;
+        if (value == true) {
+          _healthConditions['none'] = false;
+        }
 
-    if (confirm == true && mounted) {
-      await ref.read(authProvider.notifier).logout();
-
-      if (mounted) {
-        context.go('/login');
+        final anySelected = _healthConditions.entries
+            .where((e) => e.key != 'none')
+            .any((e) => e.value);
+        if (!anySelected) {
+          _healthConditions['none'] = true;
+        }
       }
-    }
+    });
+
+    _calculateEstimatedGoal();
   }
 
-  void _showSuccess(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      ),
-    );
+  // --- SAVE / CONTINUE LOGIC ---
+  Future<void> _handleContinue() async {
+    ref.read(authProvider.notifier).clearError();
+
+    final weightText = _weightController.text.trim();
+    if (weightText.isEmpty) {
+      _showError('Please enter your weight');
+      return;
+    }
+
+    final weight = double.tryParse(weightText);
+    if (weight == null || weight < 20 || weight > 300) {
+      _showError('Weight must be between 20 and 300 kg');
+      return;
+    }
+
+    final selectedConditions = _healthConditions.entries
+        .where((e) => e.value && e.key != 'none')
+        .map((e) => e.key)
+        .toList();
+
+    // 1. Call provider
+    await ref
+        .read(authProvider.notifier)
+        .completeProfileSetup(
+          weight: weight,
+          activityLevel: _selectedActivity,
+          healthConditions: selectedConditions,
+          climate: _selectedClimate, // <--- NEW PARAMETER
+        );
+
+    // 2. DO NOT NAVIGATE MANUALLY.
+    // The Router watches authProvider. When 'setupCompleted' becomes true,
+    // it will automatically redirect to '/home'.
   }
 
   void _showError(String message) {
@@ -433,7 +144,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Widget build(BuildContext context) {
     final authAsync = ref.watch(authProvider);
 
-    // Show error in SnackBar when error changes
+    // Listen for errors
     ref.listen<AsyncValue<AuthState>>(authProvider, (previous, next) {
       next.whenData((state) {
         if (state.error != null && state.error!.isNotEmpty && mounted) {
@@ -447,265 +158,284 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black87),
-          onPressed: () => context.pop(),
-        ),
+        automaticallyImplyLeading: false,
         title: const Text(
-          'Profile',
+          'Profile Setup',
           style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w600),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () {
+              ref.read(authProvider.notifier).logout();
+            },
+          ),
+        ],
       ),
       body: authAsync.when(
-        data: (authState) {
-          final profile = authState.profile;
-
-          if (authState.isLoading && profile == null) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (profile == null) {
-            return const Center(child: Text('No profile data'));
-          }
-
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Profile header
-                _buildProfileHeader(profile),
-
-                const SizedBox(height: 32),
-
-                // Personal Information section
-                _buildSectionTitle('Personal Information'),
-                const SizedBox(height: 12),
-                _buildInfoCard(profile),
-
-                const SizedBox(height: 24),
-
-                // Hydration Goals section
-                _buildSectionTitle('Hydration Goals'),
-                const SizedBox(height: 12),
-                _buildGoalsCard(profile),
-
-                const SizedBox(height: 32),
-
-                // Logout button
-                AuthButton(
-                  text: 'Logout',
-                  onPressed: _handleLogout,
-                  backgroundColor: Colors.red,
-                ),
-              ],
-            ),
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text('Error: $err')),
-      ),
-    );
-  }
-
-  Widget _buildProfileHeader(UserProfile profile) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.blue.shade50,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              color: Colors.blue.shade100,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.person, size: 40, color: Colors.blue),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            profile.name,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            profile.email,
-            style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: const TextStyle(
-        fontSize: 18,
-        fontWeight: FontWeight.bold,
-        color: Colors.black87,
-      ),
-    );
-  }
-
-  Widget _buildInfoCard(UserProfile profile) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: Column(
-        children: [
-          _buildInfoTile(
-            'Weight',
-            '${profile.weight?.toStringAsFixed(1) ?? 'Not set'} kg',
-            Icons.monitor_weight_outlined,
-            () => _showEditWeightDialog(profile),
-          ),
-          _buildDivider(),
-          _buildInfoTile(
-            'Activity Level',
-            profile.activityDisplayName,
-            Icons.directions_run,
-            () => _showEditActivityDialog(profile),
-          ),
-          _buildDivider(),
-          _buildInfoTile(
-            'Health Conditions',
-            profile.healthConditionsDisplay,
-            Icons.health_and_safety_outlined,
-            () => _showEditHealthDialog(profile),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoTile(
-    String label,
-    String value,
-    IconData icon,
-    VoidCallback onTap,
-  ) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, color: Colors.blue, size: 22),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
+        data: (authState) => LoadingOverlay(
+          isLoading: authState.isLoading,
+          message: 'Setting up your profile...',
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    label,
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                  const Text(
+                    'Let\'s personalize your hydration goals',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 8),
                   Text(
-                    value,
-                    style: const TextStyle(
-                      fontSize: 16,
+                    'We\'ll calculate your daily goal based on this information',
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // 1. Weight Input
+                  CustomTextField(
+                    label: 'Weight (kg)',
+                    hint: '70',
+                    controller: _weightController,
+                    keyboardType: TextInputType.number,
+                    prefixIcon: const Icon(Icons.monitor_weight_outlined),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'^\d+\.?\d{0,1}'),
+                      ),
+                    ],
+                    onChanged: (_) => _calculateEstimatedGoal(),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // 2. Activity Selector
+                  ActivitySelector(
+                    selectedActivity: _selectedActivity,
+                    onChanged: (activity) {
+                      setState(() => _selectedActivity = activity);
+                      _calculateEstimatedGoal();
+                    },
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // 3. CLIMATE SELECTOR (NEW SECTION)
+                  const Text(
+                    'Climate / Environment',
+                    style: TextStyle(
+                      fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: Colors.black87,
                     ),
                   ),
-                ],
-              ),
-            ),
-            Icon(Icons.edit_outlined, color: Colors.grey.shade400, size: 20),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGoalsCard(UserProfile profile) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Daily Goal',
-                style: TextStyle(fontSize: 15, color: Colors.black87),
-              ),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
+                  const SizedBox(height: 4),
                   Text(
-                    '${profile.dailyGoal ?? 0}',
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
+                    'Temperature affects hydration needs',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Column(
+                      children: [
+                        RadioListTile<String>(
+                          title: const Text('Moderate'),
+                          subtitle: const Text('Standard conditions'),
+                          value: 'moderate',
+                          groupValue: _selectedClimate,
+                          activeColor: Colors.blue,
+                          onChanged: (val) {
+                            setState(() => _selectedClimate = val!);
+                            _calculateEstimatedGoal();
+                          },
+                        ),
+                        Divider(height: 1, color: Colors.grey.shade200),
+                        RadioListTile<String>(
+                          title: const Text('Hot / Tropical'),
+                          subtitle: const Text('High heat or humidity'),
+                          value: 'hot',
+                          groupValue: _selectedClimate,
+                          activeColor: Colors.orange,
+                          secondary: const Icon(
+                            Icons.wb_sunny_outlined,
+                            color: Colors.orange,
+                          ),
+                          onChanged: (val) {
+                            setState(() => _selectedClimate = val!);
+                            _calculateEstimatedGoal();
+                          },
+                        ),
+                        Divider(height: 1, color: Colors.grey.shade200),
+                        RadioListTile<String>(
+                          title: const Text('Cold / Dry'),
+                          subtitle: const Text('Winter or heavy AC'),
+                          value: 'cold',
+                          groupValue: _selectedClimate,
+                          activeColor: Colors.cyan,
+                          secondary: const Icon(
+                            Icons.ac_unit,
+                            color: Colors.cyan,
+                          ),
+                          onChanged: (val) {
+                            setState(() => _selectedClimate = val!);
+                            _calculateEstimatedGoal();
+                          },
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 4),
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      'ml',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.blue,
+
+                  const SizedBox(height: 24),
+
+                  // 4. Health Conditions
+                  const Text(
+                    'Health Conditions (optional)',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Column(
+                      children: [
+                        HealthConditionCheckbox(
+                          label: 'Diabetic',
+                          value: _healthConditions['diabetic']!,
+                          onChanged: (val) =>
+                              _onHealthConditionChanged('diabetic', val),
+                        ),
+                        HealthConditionCheckbox(
+                          label: 'Pregnant',
+                          value: _healthConditions['pregnant']!,
+                          onChanged: (val) =>
+                              _onHealthConditionChanged('pregnant', val),
+                        ),
+                        HealthConditionCheckbox(
+                          label: 'Kidney Issues',
+                          value: _healthConditions['kidney']!,
+                          onChanged: (val) =>
+                              _onHealthConditionChanged('kidney', val),
+                        ),
+                        HealthConditionCheckbox(
+                          label: 'None',
+                          value: _healthConditions['none']!,
+                          onChanged: (val) =>
+                              _onHealthConditionChanged('none', val),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // 5. Estimated Goal Display
+                  if (_estimatedGoal != null)
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.blue.shade100,
+                          width: 2,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            'Your estimated daily goal',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.blue.shade900,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                _estimatedGoal!.toString(),
+                                style: TextStyle(
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue.shade700,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Text(
+                                  'ml',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.blue.shade700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Calculated based on weight, activity, and climate.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue.shade700,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
                       ),
                     ),
+
+                  const SizedBox(height: 32),
+
+                  AuthButton(
+                    text: 'Continue',
+                    onPressed: _handleContinue,
+                    isLoading: authState.isLoading,
                   ),
+
+                  const SizedBox(height: 16),
+                  Text(
+                    'This information helps us calculate your personalized hydration goal based on scientific recommendations.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade500,
+                      fontStyle: FontStyle.italic,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
                 ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _handleRecalculateGoal,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Recalculate Goal'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.blue,
-                side: const BorderSide(color: Colors.blue),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
               ),
             ),
           ),
-        ],
+        ),
+        error: (Object error, StackTrace stackTrace) =>
+            Center(child: Text('Error: $error')),
+        loading: () => const Center(child: CircularProgressIndicator()),
       ),
     );
-  }
-
-  Widget _buildDivider() {
-    return Divider(height: 1, color: Colors.grey.shade300);
   }
 }

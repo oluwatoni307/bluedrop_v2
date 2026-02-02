@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
+
 // --- MODELS & REPOSITORIES ---
 import '../../data/challenge_model.dart';
 import '../../data/challenges_repository.dart';
 import '../../data/persona_repository.dart';
+
 // --- WIDGETS ---
 import '../widgets/active_challenge_row';
 import '../widgets/market_place.dart';
 import '../widgets/persona_card.dart';
+
 // --- PAGES ---
 import 'ChallengeDetailsPage.dart';
+
 // --- SERVICES ---
 import '../../../../services/database_service.dart';
 import '../../../../services/api_service.dart';
@@ -33,11 +37,14 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
   late Future<List<Challenge>> _availableFuture;
   int _currentWaterLog = 0;
 
+  // UI Loading State for the specific shuffle action
+  bool _isShuffling = false;
+
   @override
   void initState() {
     super.initState();
-    _loadLocalData(); // 1. Show whatever we have immediately
-    _checkAutoSync(); // 2. Check if we need to call the AI (Weekly)
+    _loadLocalData(); // 1. Instant UI render
+    _checkAutoSync(); // 2. Background Weekly Check
   }
 
   // ===========================================================================
@@ -54,7 +61,7 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
     });
   }
 
-  /// Weekly Logic: Checks if 7 days have passed since the last Sync.
+  /// Weekly Logic: Checks if 7 days have passed since the last Full Sync.
   Future<void> _checkAutoSync() async {
     try {
       final profile = await _db.getProfile();
@@ -71,8 +78,8 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
       if (shouldSync) {
         print("⏳ Auto-Sync Triggered (Weekly Check)...");
 
-        // 1. Call Python Backend
-        await _apiService.syncWithAI();
+        // 1. Call Full Weekly Sync (Updates Persona + Challenges)
+        await _apiService.performWeeklySync();
 
         // 2. Save new timestamp to Profile
         await _db.updateProfile({
@@ -89,26 +96,19 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
             ),
           );
         }
-      } else {
-        print(
-          "✅ Data is fresh (Synced ${DateTime.now().difference(lastSync).inDays} days ago).",
-        );
       }
     } catch (e) {
       print("⚠️ Auto-sync failed silently: $e");
     }
   }
 
-  /// Manual Pull-to-Refresh Trigger
-  Future<void> _handleRefresh() async {
+  /// Manual Pull-to-Refresh: Forces a FULL Weekly Sync
+  Future<void> _handleFullRefresh() async {
     try {
-      await _apiService.syncWithAI();
-
-      // Update timestamp even on manual refresh
+      await _apiService.performWeeklySync();
       await _db.updateProfile({
         'last_ai_sync': DateTime.now().toIso8601String(),
       });
-
       _loadLocalData();
 
       if (mounted) {
@@ -128,13 +128,39 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
     }
   }
 
+  /// Shuffle Button: Updates Challenges ONLY (Keeps Persona)
+  Future<void> _handleShuffle() async {
+    setState(() => _isShuffling = true);
+
+    try {
+      await _apiService.shuffleChallenges();
+      _loadLocalData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("New challenges loaded! 🎲")),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Shuffle failed: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isShuffling = false);
+    }
+  }
+
   Future<void> _loadWaterLog() async {
-    // Helper to calculate today's total volume
-    // Assumes your generic service can fetch all logs
     final logs = await _db.getAllFromCollection('water_logs');
     final now = DateTime.now();
 
     final todayLogs = logs.where((l) {
+      if (l['createdAt'] == null) return false;
       final date = DateTime.parse(l['createdAt']);
       return date.year == now.year &&
           date.month == now.month &&
@@ -155,11 +181,10 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
 
   void _onToggleHabit(Challenge challenge) async {
     await _challengeRepo.toggleHabitForToday(challenge);
-    _loadLocalData(); // Refresh UI to show checkmark
+    _loadLocalData();
   }
 
   void _navigateToDetails(Challenge challenge) async {
-    // Pass 'currentWaterLog' so the details page can show the Ripple Effect progress bar
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -169,7 +194,6 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
         ),
       ),
     );
-    // If user Joined or Left, refresh the page
     if (result == true) {
       _loadLocalData();
     }
@@ -193,7 +217,7 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
         iconTheme: const IconThemeData(color: Colors.black),
       ),
       body: RefreshIndicator(
-        onRefresh: _handleRefresh, // Manual trigger
+        onRefresh: _handleFullRefresh, // Pull down for FULL Sync
         color: Colors.blue,
         backgroundColor: Colors.white,
         child: SingleChildScrollView(
@@ -209,16 +233,16 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
                   if (!snapshot.hasData) return const SizedBox(height: 100);
                   final data = snapshot.data!;
                   return PersonaCard(
-                    name: data['name']!,
-                    tag: data['tag']!,
-                    bio: data['bio']!,
+                    name: data['name'] ?? 'User',
+                    tag: data['tag'] ?? 'Novice',
+                    bio: data['bio'] ?? 'Ready to start!',
                   );
                 },
               ),
 
               const SizedBox(height: 20),
 
-              // 2. MARKETPLACE SECTION (Available Challenges)
+              // 2. MARKETPLACE HEADER (With Shuffle Button)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: Row(
@@ -231,49 +255,50 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    // Optional: Small 'Refresh' icon if users don't know pull-to-refresh
-                    IconButton(
-                      icon: const Icon(
-                        Icons.refresh,
-                        size: 18,
-                        color: Colors.grey,
+                    // Shuffle / Reroll Button
+                    TextButton.icon(
+                      onPressed: _isShuffling ? null : _handleShuffle,
+                      icon: _isShuffling
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(
+                              Icons.shuffle,
+                              size: 18,
+                              color: Colors.blue,
+                            ),
+                      label: Text(
+                        _isShuffling ? "Loading..." : "Shuffle",
+                        style: const TextStyle(color: Colors.blue),
                       ),
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("Pull down to sync...")),
-                        );
-                        _handleRefresh();
-                      },
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        backgroundColor: Colors.blue.withOpacity(0.1),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
+
               const SizedBox(height: 12),
+
+              // 3. MARKETPLACE CAROUSEL
               SizedBox(
                 height: 160,
                 child: FutureBuilder<List<Challenge>>(
                   future: _availableFuture,
                   builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        !_isShuffling) {
                       return const Center(child: CircularProgressIndicator());
                     }
                     if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                      return Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 16),
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade200),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            "All caught up!\nPull down to ask AI for new plans.",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        ),
-                      );
+                      return _buildEmptyState();
                     }
                     return ListView.builder(
                       scrollDirection: Axis.horizontal,
@@ -293,7 +318,7 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
 
               const SizedBox(height: 30),
 
-              // 3. ACTIVE DASHBOARD SECTION
+              // 4. ACTIVE DASHBOARD SECTION
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: const Text(
@@ -336,7 +361,6 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
                   return Column(
                     children: snapshot.data!.map((challenge) {
                       final isHabit = challenge.type == ChallengeType.habitSide;
-
                       return GestureDetector(
                         onTap: () => _navigateToDetails(challenge),
                         child: ActiveChallengeRow(
@@ -354,6 +378,35 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
               const SizedBox(height: 50),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "All caught up!",
+              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              "Pull down to force sync\nor click Shuffle.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ],
         ),
       ),
     );

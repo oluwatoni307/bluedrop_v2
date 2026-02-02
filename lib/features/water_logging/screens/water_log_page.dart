@@ -4,7 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../water_log.dart';
 import '../water_logs_provider.dart';
-import '../water_widgets.dart';
+import '../water_widgets.dart'; // Contains QuickAddButtons, LogsList, ImageAnalysisButton
+import 'smart_log_sheet.dart'; // <--- The new widget we just created
 
 class WaterLogPage extends ConsumerStatefulWidget {
   const WaterLogPage({super.key});
@@ -54,7 +55,7 @@ class _WaterLogPageState extends ConsumerState<WaterLogPage> {
               _buildQuickAddSection(context, ref, state.presets),
               const SizedBox(height: 24),
 
-              // More Options Section
+              // More Options Section (UPDATED)
               _buildMoreOptionsSection(context, ref),
               const SizedBox(height: 24),
 
@@ -269,6 +270,7 @@ class _WaterLogPageState extends ConsumerState<WaterLogPage> {
     );
   }
 
+  // ✅ FULLY UPDATED: MORE OPTIONS SECTION
   Widget _buildMoreOptionsSection(BuildContext context, WidgetRef ref) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -280,6 +282,7 @@ class _WaterLogPageState extends ConsumerState<WaterLogPage> {
         const SizedBox(height: 8),
         Row(
           children: [
+            // 1. Custom (Calculator)
             Expanded(
               child: _buildOptionCard(
                 icon: Icons.calculate,
@@ -299,14 +302,57 @@ class _WaterLogPageState extends ConsumerState<WaterLogPage> {
               ),
             ),
             const SizedBox(width: 12),
-            const Expanded(child: ImageAnalysisButton()),
-            const SizedBox(width: 12),
+
+            // 2. Cabinet (Replaces Image Analysis)
             Expanded(
               child: _buildOptionCard(
-                icon: Icons.list,
-                label: 'Presets',
+                icon: Icons.shelves, // Or Icons.kitchen
+                label: 'Cabinet',
                 onTap: () async {
-                  await context.push('/presets');
+                  // Show Smart Sheet in Cabinet Mode
+                  final result =
+                      await showModalBottomSheet<Map<String, dynamic>>(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (context) =>
+                            const SmartLogSheet(mode: LogMode.cabinet),
+                      );
+
+                  // Handle Result
+                  if (result != null && mounted) {
+                    final amount = result['amount'] as int;
+                    final type = result['type'] as String;
+                    _handleCustomLog(amount, type);
+                  }
+                },
+              ),
+            ),
+
+            const SizedBox(width: 12),
+
+            // 3. Fruits (Replaces Presets Link)
+            Expanded(
+              child: _buildOptionCard(
+                icon: Icons.eco, // Leaf icon for fruits
+                label: 'Fruits',
+                onTap: () async {
+                  // Show Smart Sheet in Fruit Mode
+                  final result =
+                      await showModalBottomSheet<Map<String, dynamic>>(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (context) =>
+                            const SmartLogSheet(mode: LogMode.fruit),
+                      );
+
+                  // Handle Result
+                  if (result != null && mounted) {
+                    final amount = result['amount'] as int;
+                    final type = result['type'] as String;
+                    _handleCustomLog(amount, type);
+                  }
                 },
               ),
             ),
@@ -329,7 +375,7 @@ class _WaterLogPageState extends ConsumerState<WaterLogPage> {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-              Icon(icon, size: 32),
+              Icon(icon, size: 32, color: Colors.blueGrey),
               const SizedBox(height: 8),
               Text(label, style: const TextStyle(fontSize: 12)),
             ],

@@ -1,3 +1,5 @@
+// features/hub/data/challenge_model.dart
+
 enum ChallengeType {
   waterMain, // Replaces daily goal (Max 1)
   habitSide, // Yes/No daily toggle (Unlimited)
@@ -75,17 +77,20 @@ class Challenge {
     );
   }
 
-  // SERIALIZATION (For Hive/Firestore)
+  // ---------------------------------------------------------------------------
+  // SERIALIZATION
+  // ---------------------------------------------------------------------------
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'title': title,
       'description': description,
       'detailsMarkdown': detailsMarkdown,
-      'type': type.index,
+      'type': type.index, // Storing as INT locally
       'durationDays': durationDays,
       'targetVolume': targetVolume,
-      'status': status.index,
+      'status': status.index, // Storing as INT locally
       'startDate': startDate?.toIso8601String(),
       'completedDates': completedDates.map((e) => e.toIso8601String()).toList(),
     };
@@ -93,16 +98,23 @@ class Challenge {
 
   factory Challenge.fromMap(Map<String, dynamic> map) {
     return Challenge(
-      id: map['id'],
-      title: map['title'],
-      description: map['description'],
+      id: map['id']?.toString() ?? 'unknown_id',
+      title: map['title'] ?? 'Untitled Challenge',
+      description: map['description'] ?? '',
       detailsMarkdown: map['detailsMarkdown'] ?? '',
-      type: ChallengeType.values[map['type']],
-      durationDays: map['durationDays'],
-      targetVolume: map['targetVolume'],
-      status: ChallengeStatus.values[map['status']],
+
+      // FIX 1: Robust Enum Parsing (Handles both 0 and "waterMain")
+      type: _parseChallengeType(map['type']),
+
+      // FIX 2: Robust Status Parsing (Handles both 0 and "available")
+      status: _parseChallengeStatus(map['status']),
+
+      // FIX 3: Robust Int Parsing (Handles "7" string from JSON)
+      durationDays: int.tryParse(map['durationDays'].toString()) ?? 1,
+      targetVolume: int.tryParse(map['targetVolume'].toString()) ?? 0,
+
       startDate: map['startDate'] != null
-          ? DateTime.parse(map['startDate'])
+          ? DateTime.tryParse(map['startDate'])
           : null,
       completedDates:
           (map['completedDates'] as List?)
@@ -112,13 +124,50 @@ class Challenge {
     );
   }
 
+  // --- Helper Methods for Safe Parsing ---
+
+  static ChallengeType _parseChallengeType(dynamic input) {
+    // 1. Handle Integer (from local DB or strict API)
+    if (input is int) {
+      return ChallengeType.values.length > input
+          ? ChallengeType.values[input]
+          : ChallengeType.habitSide;
+    }
+    // 2. Handle String (from loose AI JSON)
+    if (input is String) {
+      if (input == 'waterMain') return ChallengeType.waterMain;
+      if (input == 'habitSide') return ChallengeType.habitSide;
+    }
+    // 3. Fallback
+    return ChallengeType.habitSide;
+  }
+
+  static ChallengeStatus _parseChallengeStatus(dynamic input) {
+    // 1. Handle Integer
+    if (input is int) {
+      return ChallengeStatus.values.length > input
+          ? ChallengeStatus.values[input]
+          : ChallengeStatus.available;
+    }
+    // 2. Handle String
+    if (input is String) {
+      if (input == 'active') return ChallengeStatus.active;
+      if (input == 'completed') return ChallengeStatus.completed;
+      if (input == 'available') return ChallengeStatus.available;
+    }
+    // 3. Fallback
+    return ChallengeStatus.available;
+  }
+
+  // ---------------------------------------------------------------------------
+  // LOGIC
+  // ---------------------------------------------------------------------------
+
   /// Calculate Timeline Progress (0.0 to 1.0) based on DURATION
   double getTimelineProgress() {
     if (startDate == null) return 0.0;
 
     final now = DateTime.now();
-    final _ = startDate!.add(Duration(days: durationDays));
-
     // Total duration in minutes (for smoother progress bars than just days)
     final totalMinutes = durationDays * 24 * 60;
     final elapsedMinutes = now.difference(startDate!).inMinutes;

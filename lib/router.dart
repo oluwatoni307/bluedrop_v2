@@ -8,9 +8,9 @@ import 'features/auth/screens/forgot_password_screen.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/auth/screens/onboarding_screen.dart';
 import 'features/auth/screens/profile_screen.dart';
-import 'features/auth/screens/profile_setup_screen.dart';
 import 'features/auth/screens/signup_screen.dart';
 import 'features/auth/screens/splash.dart';
+import 'features/cabinet/ContainerCabinetPage.dart';
 import 'features/home/home_screen.dart';
 import 'features/analytics/analytics_screen.dart';
 import 'features/hub/presentation/pages/Hub_page.dart';
@@ -23,16 +23,24 @@ import 'features/water_logging/screens/water_log_page.dart';
 // --- PROVIDERS ---
 import 'features/auth/auth_provider.dart';
 
+// ✅ FIX 1: Define Keys OUTSIDE the provider so they persist
+final _rootNavigatorKey = GlobalKey<NavigatorState>();
+final _shellNavigatorKey = GlobalKey<NavigatorState>();
+
 final routerProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authProvider);
+  // ✅ FIX 2: Watch the Notifier, not the Auth State directly
+  final notifier = ref.watch(routerNotifierProvider.notifier);
 
   return GoRouter(
+    navigatorKey: _rootNavigatorKey,
+    // This allows the router to react to changes without rebuilding itself
+    refreshListenable: notifier,
     initialLocation: '/splash',
     redirect: (context, state) {
-      // Get current auth state
+      // ✅ Use READ here, because the refreshListenable triggers the check
+      final authState = ref.read(authProvider);
       final auth = authState.value;
 
-      // Define path variables
       final location = state.uri.toString();
       final isSplash = location == '/splash';
       final isLogin = location == '/login';
@@ -41,40 +49,39 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isOnboarding = location == '/onboarding';
       final isSetup = location == '/setup';
 
-      // Group "Public" routes (Routes that don't require login)
       final isPublicRoute = isLogin || isSignup || isForgot || isOnboarding;
-
       final isAuthenticated = auth?.isAuthenticated ?? false;
-      final isSetupComplete = auth?.profile?.isSetupComplete ?? false;
 
-      // 1. If Auth is still initializing (loading), stay on Splash
+      final hasFinishedOnboarding = auth?.profile?.onboardingCompleted ?? false;
+      final hasFinishedSetup = auth?.profile?.isSetupComplete ?? false;
+
+      // 1. Loading Phase
       if (authState.isLoading || auth == null) return null;
 
-      // 2. --- NOT LOGGED IN ---
+      // 2. Not Logged In
       if (!isAuthenticated) {
-        // If on a public page (Login/Signup/etc), let them stay
         if (isPublicRoute) return null;
-
-        // If on Splash or any internal page, go to Login
         return '/login';
       }
 
-      // 3. --- LOGGED IN BUT NO SETUP ---
-      if (!isSetupComplete) {
+      // 3. Logged In: Gate 1 (Onboarding)
+      if (!hasFinishedOnboarding) {
+        return isOnboarding ? null : '/onboarding';
+      }
+
+      // 4. Logged In: Gate 2 (Setup)
+      if (!hasFinishedSetup) {
         return isSetup ? null : '/setup';
       }
 
-      // 4. --- FULLY LOGGED IN & SETUP ---
-      // If user is on Splash, Login, or Setup, move them to Home
+      // 5. Fully Authenticated
       if (isSplash || isPublicRoute || isSetup) {
         return '/';
       }
 
-      // Allow all other navigation (Analytics, Settings, etc.)
       return null;
     },
     routes: [
-      // --- PUBLIC AUTH ROUTES ---
       GoRoute(
         path: '/splash',
         builder: (context, state) => const SplashScreen(),
@@ -95,15 +102,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'onboarding',
         builder: (context, state) => const OnboardingScreen(),
       ),
-
-      // --- PROFILE SETUP (Transition state) ---
       GoRoute(
         path: '/setup',
         builder: (context, state) => const ProfileSetupScreen(),
       ),
 
-      // --- APP SHELL (Main Navigation) ---
+      // --- APP SHELL ---
       ShellRoute(
+        navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) {
           return AppShell(child: child);
         },
@@ -121,16 +127,16 @@ final routerProvider = Provider<GoRouter>((ref) {
                 const NoTransitionPage(child: AnalyticsScreen()),
           ),
           GoRoute(
+            path: '/cabinet',
+            name: 'cabinet',
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: ContainerCabinetPage()),
+          ),
+          GoRoute(
             path: '/goals',
             name: 'goals',
             pageBuilder: (context, state) =>
                 const NoTransitionPage(child: GoalsHubPage()),
-          ),
-          GoRoute(
-            path: '/profile',
-            name: 'profile',
-            pageBuilder: (context, state) =>
-                const NoTransitionPage(child: ProfileScreen()),
           ),
           GoRoute(
             path: '/setting',
@@ -138,16 +144,21 @@ final routerProvider = Provider<GoRouter>((ref) {
             pageBuilder: (context, state) =>
                 const NoTransitionPage(child: SettingsScreen()),
           ),
+          GoRoute(
+            path: '/profile',
+            name: 'profile',
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: ProfileSetupScreen()),
+          ),
         ],
       ),
 
-      // --- SETTINGS SUB-ROUTES (Outside Shell) ---
+      // --- SUB ROUTES ---
       GoRoute(
         path: '/edit-profile',
         name: 'edit-profile',
         builder: (context, state) => const EditProfileScreen(),
       ),
-
       GoRoute(
         path: '/setting/notifications',
         name: 'notifications',
@@ -155,8 +166,6 @@ final routerProvider = Provider<GoRouter>((ref) {
           body: Center(child: Text("Notifications Settings (Coming Soon)")),
         ),
       ),
-
-      // --- LOGGING SCREENS (Overlay/Fullscreen, outside shell) ---
       GoRoute(
         path: '/log',
         name: 'log',
@@ -175,3 +184,30 @@ final routerProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+// ✅ HELPER: Bridges Auth changes to Router refresh
+final routerNotifierProvider = AsyncNotifierProvider<RouterNotifier, void>(() {
+  return RouterNotifier();
+});
+
+class RouterNotifier extends AsyncNotifier<void> implements Listenable {
+  VoidCallback? _listener;
+
+  @override
+  Future<void> build() async {
+    // Listen to Auth and notify the router when it changes
+    ref.listen(authProvider, (_, __) {
+      _listener?.call();
+    });
+  }
+
+  @override
+  void addListener(VoidCallback listener) {
+    _listener = listener;
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    _listener = null;
+  }
+}
