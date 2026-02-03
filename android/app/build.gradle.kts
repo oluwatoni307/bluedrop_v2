@@ -9,7 +9,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.bluedrop_v2"
+    namespace = "com.example.water"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
