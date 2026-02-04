@@ -12,31 +12,19 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   print('🔥 Initializing Firebase...');
-
-  FirebaseOptions? firebaseOptions;
-
-  if (kIsWeb) {
-    firebaseOptions = const FirebaseOptions(
-      apiKey: "AIzaSyD3bk305sdAiQsrycp4_rQbOaW4y9ipnrQ",
-      authDomain: "water-3db9c.firebaseapp.com",
-      projectId: "water-3db9c",
-      storageBucket: "water-3db9c.firebasestorage.app",
-      messagingSenderId: "236007535708",
-      appId: "1:236007535708:web:499a65eb84b519ddc7e299",
-      measurementId: "G-JFJVJCJDFV",
-    );
-  } else if (defaultTargetPlatform == TargetPlatform.android) {
-    firebaseOptions = const FirebaseOptions(
-      apiKey: "AIzaSyA-tby7DGCIhXGOWNo5yckAwU-wQG-yxEY", // From your JSON
-      appId: "1:236007535708:android:73515d86fb209659c7e299", // From your JSON
-      messagingSenderId: "236007535708", // From your JSON project_number
-      projectId: "water-3db9c", // From your JSON
-      storageBucket: "water-3db9c.firebasestorage.app",
-    );
-  }
-
-  await Firebase.initializeApp(options: firebaseOptions);
-  print('✅ Firebase initialized');
+  await Firebase.initializeApp(
+    options: kIsWeb
+        ? const FirebaseOptions(
+            apiKey: "AIzaSyD3bk305sdAiQsrycp4_rQbOaW4y9ipnrQ",
+            authDomain: "water-3db9c.firebaseapp.com",
+            projectId: "water-3db9c",
+            storageBucket: "water-3db9c.firebasestorage.app",
+            messagingSenderId: "236007535708",
+            appId: "1:236007535708:web:499a65eb84b519ddc7e299",
+            measurementId: "G-JFJVJCJDFV",
+          )
+        : null,
+  );
   print('✅ Firebase initialized');
 
   print('🗄️ Initializing Database...');

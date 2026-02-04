@@ -7,6 +7,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:236007535708:android:9bf92670f42ab227c7e299",
+        "android_client_info": {
+          "package_name": "com.example.bluedrop_v2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA-tby7DGCIhXGOWNo5yckAwU-wQG-yxEY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:236007535708:android:73515d86fb209659c7e299",
         "android_client_info": {
           "package_name": "com.example.water"
