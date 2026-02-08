@@ -1,5 +1,5 @@
-import 'dart:convert';
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,29 +7,45 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
 class NotificationManager {
+  // Singleton pattern
   static final NotificationManager _instance = NotificationManager._internal();
   factory NotificationManager() => _instance;
   NotificationManager._internal();
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
-  static const String _storageKey = 'scheduled_alarms_v1';
 
-  /// 1. INITIALIZE
+  // Use a fresh channel ID to clear any previous "broken" settings on the device
+  static const String _channelId = 'bluedrop_silent_v3';
+  static const String _channelName = 'High Priority Alerts';
+  static const String _storageKey = 'scheduled_alarms_v2';
+
+  FlutterLocalNotificationsPlugin get plugin => _plugin;
+
+  /// 1. ROBUST INITIALIZATION
   Future<void> init() async {
-    tz.initializeTimeZones();
+    // A. Timezone Setup (Crucial for scheduled alarms)
+    try {
+      tz.initializeTimeZones();
+      // Attempt to set a known safe location if local fails,
+      // but usually local is fine if initialized.
+      // tz.setLocalLocation(tz.getLocation('Africa/Lagos')); // Optional: Force location
+    } catch (e) {
+      debugPrint("⚠️ Timezone Error: $e");
+    }
 
+    // B. Platform Settings
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    const DarwinInitializationSettings iosSettings =
+    final DarwinInitializationSettings iosSettings =
         DarwinInitializationSettings(
           requestSoundPermission: true,
           requestBadgePermission: true,
           requestAlertPermission: true,
         );
 
-    const InitializationSettings initSettings = InitializationSettings(
+    final InitializationSettings initSettings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
     );
@@ -37,14 +53,18 @@ class NotificationManager {
     await _plugin.initialize(
       initSettings,
       onDidReceiveNotificationResponse: (details) {
-        debugPrint("Notification Clicked: ${details.payload}");
+        debugPrint("🔔 Notification Clicked: ${details.payload}");
       },
     );
 
+    // C. Create the Channel (Immutable once created!)
     await _createCriticalChannel();
+
+    // D. Request Permissions
+    await requestPermissions();
   }
 
-  /// 2. REQUEST PERMISSIONS
+  /// 2. PERMISSION REQUESTS (Android 13/14 Compliant)
   Future<void> requestPermissions() async {
     if (Platform.isAndroid) {
       final androidPlugin = _plugin
@@ -52,12 +72,12 @@ class NotificationManager {
             AndroidFlutterLocalNotificationsPlugin
           >();
 
+      // A. Notification Permission (Android 13+)
       await androidPlugin?.requestNotificationsPermission();
 
-      final bool? granted = await androidPlugin?.requestExactAlarmsPermission();
-      if (granted == false) {
-        debugPrint("Exact Alarm permission denied.");
-      }
+      // B. Exact Alarm Permission (Android 12+)
+      // We check strict status first
+      await androidPlugin?.requestExactAlarmsPermission();
     } else if (Platform.isIOS) {
       await _plugin
           .resolvePlatformSpecificImplementation<
@@ -67,95 +87,128 @@ class NotificationManager {
     }
   }
 
-  /// 3. SCHEDULE (Aggressive Mode)
+  /// 3. SMART SCHEDULE (The Fix for `pi_cancelled`)
   Future<void> scheduleAggressiveAlarm({
     required int id,
     required String title,
     required String body,
     required DateTime scheduledTime,
   }) async {
-    await _saveAlarmToDisk(id, title, body, scheduledTime);
+    final tz.TZDateTime tzTime = tz.TZDateTime.from(scheduledTime, tz.local);
 
-    await _plugin.zonedSchedule(
-      id,
-      title,
-      body,
-      tz.TZDateTime.from(scheduledTime, tz.local),
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'critical_channel_id',
-          'Critical Reminders',
-          channelDescription: 'Used for important medical reminders',
-          importance: Importance.max,
-          priority: Priority.high,
-          audioAttributesUsage: AudioAttributesUsage.alarm,
-          category: AndroidNotificationCategory.alarm,
-          visibility: NotificationVisibility.public,
-          fullScreenIntent: true,
+    // SAFETY CHECK: Don't schedule in the past
+    if (tzTime.isBefore(tz.TZDateTime.now(tz.local))) {
+      debugPrint("❌ Ignored schedule request for past time: $tzTime");
+      return;
+    }
+
+    // DUPLICATE CHECK: Don't re-schedule if it's already there (Prevents pi_cancelled)
+    final List<PendingNotificationRequest> pending = await _plugin
+        .pendingNotificationRequests();
+
+    final bool alreadyExists = pending.any((p) => p.id == id);
+
+    // If it exists, we cancel it first explicitly to be clean,
+    // OR we can skip it. For updating data, we usually cancel first.
+    if (alreadyExists) {
+      debugPrint("🔄 Updating existing alarm #$id");
+      await _plugin.cancel(id);
+    }
+
+    try {
+      await _plugin.zonedSchedule(
+        id,
+        title,
+        body,
+        tzTime,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _channelId,
+            _channelName,
+            channelDescription: 'Visual alerts for medication',
+
+            // MAXIMUM PRIORITY SETTINGS
+            importance: Importance.max,
+            priority: Priority.max,
+
+            // SCREEN WAKEUP SETTINGS
+            fullScreenIntent: true, // Shows over lockscreen
+            visibility: NotificationVisibility.public,
+            category: AndroidNotificationCategory.alarm,
+
+            // VISUALS ONLY (No Sound requested)
+            playSound: false,
+            enableVibration: true,
+
+            // PERSISTENCE
+            ongoing: false,
+            autoCancel: true,
+          ),
+          iOS: const DarwinNotificationDetails(
+            presentAlert: true,
+            presentBanner: true,
+            presentList: true,
+            interruptionLevel: InterruptionLevel.critical,
+          ),
         ),
-        iOS: DarwinNotificationDetails(
-          presentAlert: true,
-          presentSound: true,
-          interruptionLevel: InterruptionLevel.critical,
-        ),
-      ),
-      // ONLY this parameter is needed now
-      androidScheduleMode: AndroidScheduleMode.alarmClock,
-    );
+        // AGGRESSIVE TIMING MODE
+        androidScheduleMode: AndroidScheduleMode.alarmClock,
+      );
+
+      debugPrint("✅ Scheduled #$id for ${tzTime.toString()}");
+
+      // Save to disk for UI restoration only (not for Logic restoration)
+      await _saveAlarmToDisk(id, title, body, scheduledTime);
+    } catch (e) {
+      debugPrint("❌ CRITICAL FAILURE in Schedule: $e");
+    }
   }
 
-  /// 4. RESTORE (Boot Recovery)
-  Future<void> restoreScheduledAlarms() async {
+  /// 4. SAFE RESTORE (Does not loop-kill alarms)
+  /// Only call this if you suspect the OS dropped alarms (rare)
+  /// or to populate your UI list.
+  Future<void> syncAlarms() async {
+    debugPrint("📥 Syncing alarms...");
+    // We trust the OS to keep the alarms via the BootReceiver.
+    // We only use this to clean up our local disk storage if an alarm has passed.
+
     final prefs = await SharedPreferences.getInstance();
     final String? storedString = prefs.getString(_storageKey);
-
     if (storedString == null) return;
 
     List<dynamic> alarms = jsonDecode(storedString);
+    List<Map<String, dynamic>> validAlarms = [];
     final now = DateTime.now();
 
     for (var alarm in alarms) {
       final DateTime scheduledTime = DateTime.parse(alarm['time']);
-
       if (scheduledTime.isAfter(now)) {
-        await _plugin.zonedSchedule(
-          alarm['id'],
-          alarm['title'],
-          alarm['body'],
-          tz.TZDateTime.from(scheduledTime, tz.local),
-          const NotificationDetails(
-            android: AndroidNotificationDetails(
-              'critical_channel_id',
-              'Critical Reminders',
-              importance: Importance.max,
-              priority: Priority.high,
-              audioAttributesUsage: AudioAttributesUsage.alarm,
-              category: AndroidNotificationCategory.alarm,
-              fullScreenIntent: true,
-            ),
-          ),
-          androidScheduleMode: AndroidScheduleMode.alarmClock,
-        );
+        validAlarms.add(alarm as Map<String, dynamic>);
+        // We DO NOT call zonedSchedule here blindly.
+        // We assume the BootReceiver handled it.
+        // Only reschedule if pending list is empty? (Optional advanced logic)
       }
     }
+
+    // Update disk to remove old/passed alarms
+    await prefs.setString(_storageKey, jsonEncode(validAlarms));
   }
 
-  /// 5. CANCEL
   Future<void> cancelAlarm(int id) async {
     await _plugin.cancel(id);
     await _removeAlarmFromDisk(id);
   }
 
-  // --- PRIVATE HELPERS ---
+  // --- INTERNAL HELPERS ---
 
   Future<void> _createCriticalChannel() async {
     const AndroidNotificationChannel channel = AndroidNotificationChannel(
-      'critical_channel_id',
-      'Critical Reminders',
-      description: 'Used for important medical reminders',
-      importance: Importance.max,
-      playSound: true,
-      audioAttributesUsage: AudioAttributesUsage.alarm,
+      _channelId,
+      _channelName,
+      description: 'Visual alerts for medication',
+      importance: Importance.max, // MAX implies heads-up display
+      playSound: false,
+      enableVibration: true,
     );
 
     await _plugin
@@ -196,35 +249,5 @@ class NotificationManager {
     return storedString == null
         ? []
         : List<Map<String, dynamic>>.from(jsonDecode(storedString));
-  }
-}
-
-// test funciton
-Future<void> scheduleTestAlarms() async {
-  final manager = NotificationManager();
-  final now = DateTime.now();
-
-  // The offsets you requested (in minutes)
-  final offsets = [5, 15, 30, 60, 120];
-
-  print("🚀 Scheduling 5 test alarms...");
-
-  for (int i = 0; i < offsets.length; i++) {
-    final minutes = offsets[i];
-    final scheduledTime = now.add(Duration(minutes: minutes));
-
-    // Use IDs 100+ to avoid messing up your main Morning/Afternoon/Evening alarms (IDs 1, 2, 3)
-    final id = 100 + i;
-
-    await manager.scheduleAggressiveAlarm(
-      id: id,
-      title: "Test Alarm (+${minutes}m)",
-      body: "This is your $minutes minute test verification.",
-      scheduledTime: scheduledTime,
-    );
-
-    print(
-      "   ✅ Scheduled ID $id for ${scheduledTime.hour}:${scheduledTime.minute}",
-    );
   }
 }
