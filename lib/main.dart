@@ -1,18 +1,18 @@
-import 'package:bluedrop_v2/services/notification_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'services/database_service.dart';
+import 'services/notification_service.dart';
 import 'theme.dart';
 import 'router.dart';
 
 // Diagnostic tool to check if alarms are actually scheduled
+// Updated to instantiate a plugin instance directly for querying
 Future<void> diagnoseDangerousAlarms() async {
-  final List<PendingNotificationRequest> pending = await NotificationManager()
-      .plugin
-      .pendingNotificationRequests();
+  final List<PendingNotificationRequest> pending =
+      await FlutterLocalNotificationsPlugin().pendingNotificationRequests();
 
   print("🔍 --- DIAGNOSTIC REPORT ---");
   if (pending.isEmpty) {
@@ -62,32 +62,26 @@ void main() async {
 
   print('🚀 Starting app...');
 
-  // --- 3. NOTIFICATION ENGINE (The Fix) ---
+  // --- 3. NOTIFICATION ENGINE (UPDATED) ---
   print('🔔 Initializing Notification Engine...');
 
-  // Initialize and create the NEW channel
-  await NotificationManager().init();
+  // A. Initialize & Create Channels (API 26+)
+  await AndroidNotificationEngine().initialize();
+
+  // B. Check Permissions (This is a good place to log status, but request usually happens on UI)
+  // For the purpose of this smoke test, we log the status.
+  // Note: We don't await the request here to avoid blocking startup with a dialog.
+  print('🔔 Notification Engine Ready.');
 
   print('🧪 Testing immediate notification...');
 
-  // CRITICAL FIX: Use the NEW Channel ID ('bluedrop_silent_v3')
-  // Using the old ID ('critical_channel_id') would be silent/broken.
-  await NotificationManager().plugin.show(
-    777, // Test ID
-    "✅ System Online",
-    "This notification confirms the new channel is active.",
-    const NotificationDetails(
-      android: AndroidNotificationDetails(
-        'bluedrop_silent_v3', // <--- MUST MATCH NotificationManager.dart
-        'High Priority Alerts', // <--- MUST MATCH NotificationManager.dart
-        channelDescription: 'Visual alerts for medication',
-        importance: Importance.max,
-        priority: Priority.max,
-        fullScreenIntent: true, // Test the lockscreen wakeup
-        playSound: false, // As per your request (visual only)
-        enableVibration: true,
-      ),
-    ),
+  // C. Test Notification using the NEW Engine
+  // This uses the 'study_reminders_v1' channel we defined in the engine.
+  await AndroidNotificationEngine().showInstantNotification(
+    id: 777,
+    title: "✅ System Online",
+    body: "The Android Notification Engine is active.",
+    payload: "test_payload",
   );
   print('✅ Immediate notification dispatched');
 
