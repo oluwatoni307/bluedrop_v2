@@ -48,7 +48,11 @@ class AndroidNotificationEngine {
 
     // Safety check: ensure we are actually on Android
     if (androidImplementation == null) return;
+    // ✅ FIX 1: Add 'await' so the app pauses here until the dialog is handled
+    await requestPermissions();
 
+    // ✅ FIX 2: Add 'await' (though on Android 14 this often auto-denies, see below)
+    await checkExactAlarmPermission();
     // Channel A: High Importance (Heads-up Display, Sound)
     // Use Case: Study reminders, Exam alerts.
     const AndroidNotificationChannel studyChannel = AndroidNotificationChannel(
