@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 class TimeDistribution extends StatelessWidget {
   final Map<String, double> distribution;
 
-  const TimeDistribution({Key? key, required this.distribution})
-    : super(key: key);
+  const TimeDistribution({super.key, required this.distribution});
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +40,7 @@ class TimeDistribution extends StatelessWidget {
                 percentage: entry.value,
                 color: _getTimeColor(entry.key),
               );
-            }).toList(),
+            }),
           ],
         ),
       ),

@@ -6,10 +6,10 @@ class MotivationalHeader extends StatelessWidget {
   final double percentage;
 
   const MotivationalHeader({
-    Key? key,
+    super.key,
     required this.userName,
     required this.percentage,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

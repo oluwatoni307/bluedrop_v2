@@ -1,6 +1,8 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:intl/intl.dart';
 import '../../services/database_service.dart';
+import '../../services/notification_engine.dart';
+
 import 'water_log.dart';
 
 part 'water_logs_provider.g.dart';
@@ -113,6 +115,7 @@ class WaterLogs extends _$WaterLogs {
 
     // Update state without triggering loading spinner
     state = AsyncData(currentState.copyWith(logs: updatedLogs));
+    _checkGoalAndCancel(updatedLogs);
 
     // 2. BACKGROUND: Save to DB
     try {
@@ -125,6 +128,37 @@ class WaterLogs extends _$WaterLogs {
       state = AsyncData(currentState);
       // Rethrow so UI can handle the error
       rethrow;
+    }
+  }
+  // ==========================================
+
+  Future<void> _checkGoalAndCancel(List<WaterLog> logs) async {
+    try {
+      // 1. Calculate Total Intake
+      final currentTotal = logs.fold(0, (sum, log) => sum + log.amount);
+
+      // 2. Get Goal from Profile
+      final db = DatabaseService();
+      final profile = await db.getProfile();
+      final int dailyGoal = profile?['dailyGoal'] ?? 2000; // Default to 2000
+
+      // 3. Compare & Cancel
+      if (currentTotal >= dailyGoal) {
+        print(
+          "🎉 Goal Met ($currentTotal / $dailyGoal). Cancelling today's water alarms.",
+        );
+
+        // Call the service to kill today's alarms
+        final notificationService = AndroidNotificationEngine();
+        await notificationService.showInstantNotification(
+          id: 99999,
+          title: "🎉 Goal Achieved!",
+          body: "You've reached your daily water intake goal!",
+          payload: "goal_achieved",
+        );
+      }
+    } catch (e) {
+      print("⚠️ Failed to check goal completion: $e");
     }
   }
 

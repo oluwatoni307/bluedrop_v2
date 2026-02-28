@@ -7,7 +7,7 @@ import '../auth_widgets.dart';
 import 'package:go_router/go_router.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({Key? key}) : super(key: key);
+  const LoginScreen({super.key});
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -25,22 +25,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
-    // Clear any previous errors
+    // 1. Clear UI errors
     ref.read(authProvider.notifier).clearError();
 
-    // Call provider to handle login
-    final success = await ref
+    await ref
         .read(authProvider.notifier)
         .login(_emailController.text, _passwordController.text);
-
-    if (success && mounted) {
-      final profile = ref.read(authProvider).value?.profile;
-      if (profile?.isSetupComplete ?? false) {
-        context.go('/'); // Home
-      } else {
-        context.go('/setup'); // Profile setup
-      }
-    }
   }
 
   @override

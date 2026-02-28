@@ -1,7 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data'; // Required for Uint8List
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
-import 'package:http_parser/http_parser.dart'; // Required for MediaType
+import 'package:http_parser/http_parser.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'database_service.dart';
@@ -13,69 +14,130 @@ class ApiService {
   // CONFIGURATION
   // ---------------------------------------------------------------------------
 
-  // TODO: Replace with your actual Python Backend URL
-  // Web: 'http://localhost:8000'
-  // Android Emulator: 'http://10.0.2.2:8000'
-  // Physical Device: 'http://YOUR_PC_IP:8000'
-  static const String _baseUrl = 'http://localhost:8000';
+  // Production URL for Render deployment
+  static const String _baseUrl = 'https://bluedrop-backend.onrender.com';
 
   final DatabaseService _db = DatabaseService();
   final ChallengesRepository _challengesRepo = ChallengesRepository();
 
   // ---------------------------------------------------------------------------
-  // 1. PUBLIC METHODS (The "Controls")
+  // 1. PUBLIC METHODS
   // ---------------------------------------------------------------------------
 
-  /// WEEKLY SYNC: Updates Persona AND Challenges
-  Future<void> performWeeklySync() async {
-    print("🚀 [ApiService] Starting Weekly Sync (Profile + Challenges)...");
+  // ---------------------------------------------------------------------------
+  // 0. HEALTH CHECK (PING)
+  // ---------------------------------------------------------------------------
 
+  /// Checks if the backend is awake. Essential for Render's "spin-up" delay.
+  Future<bool> checkServerHealth() async {
+    final url = Uri.parse('$_baseUrl/ping');
+    print("📡 [ApiService] Pinging server at $url...");
+
+    try {
+      // Shorter timeout for a simple ping
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        print("🟢 [ApiService] Server is Online: ${decoded['message']}");
+        return true;
+      }
+    } catch (e) {
+      print("🟠 [ApiService] Server is sleeping or unreachable: $e");
+    }
+    return false;
+  }
+
+  String _getNigerianSeason() {
+    final month = DateTime.now().month;
+
+    if (month >= 4 && month <= 10) {
+      return "Rainy Season";
+    } else if (month == 12 || month == 1) {
+      return "Harmattan Season";
+    } else {
+      return "Dry Season";
+    }
+  }
+
+  Future<void> performWeeklySync() async {
+    print("🚀 [ApiService] Starting Weekly Sync...");
+
+    final season = _getNigerianSeason();
     final payload = await _collectUserData();
+    payload['current_season'] = season;
+    payload['sync_region'] = "NG";
+
     final jsonString = jsonEncode(payload);
 
-    // Run both requests in parallel to save time
     await Future.wait([
       _updateProfile(jsonString),
       _updateChallenges(jsonString),
     ]);
 
-    print("✨ [ApiService] Weekly Sync Complete!");
+    print("✨ [ApiService] Weekly Sync Complete during $season!");
   }
 
-  /// SHUFFLE: Updates Challenges ONLY
   Future<void> shuffleChallenges() async {
     print("🎲 [ApiService] Shuffling Challenges...");
 
     final payload = await _collectUserData();
     final jsonString = jsonEncode(payload);
 
-    // Only hit the challenge endpoint
     await _updateChallenges(jsonString);
 
     print("✅ [ApiService] Challenges Shuffled!");
   }
 
   // ---------------------------------------------------------------------------
-  // 2. PRIVATE ENDPOINT CALLERS
+  // 2. NETWORK RETRY MECHANISM
+  // ---------------------------------------------------------------------------
+
+  Future<http.Response> _postWithRetry(
+    Uri url, {
+    Map<String, String>? headers,
+    Object? body,
+    int maxRetries = 2,
+  }) async {
+    int attempt = 0;
+
+    while (attempt < maxRetries) {
+      try {
+        attempt++;
+        print("📡 [ApiService] Attempt $attempt to $url...");
+
+        return await http
+            .post(url, headers: headers, body: body)
+            .timeout(const Duration(seconds: 45));
+      } on TimeoutException {
+        print("⚠️ [ApiService] Timeout on attempt $attempt.");
+        if (attempt >= maxRetries) {
+          throw Exception('Server initialization timeout exceeded.');
+        }
+      } catch (e) {
+        print("❌ [ApiService] Network error: $e");
+        rethrow;
+      }
+    }
+    throw Exception('Request failed completely.');
+  }
+
+  // ---------------------------------------------------------------------------
+  // 3. PRIVATE ENDPOINT CALLERS
   // ---------------------------------------------------------------------------
 
   Future<void> _updateProfile(String jsonData) async {
     try {
       final token = await FirebaseAuth.instance.currentUser?.getIdToken();
 
-      // Note: We send 'body' as a Map to satisfy FastAPI 'Form(...)'
-      final response = await http.post(
+      final response = await _postWithRetry(
         Uri.parse('$_baseUrl/profile'),
-        headers: {
-          if (token != null) 'Authorization': 'Bearer $token',
-          // Library automatically sets Content-Type to application/x-www-form-urlencoded
-        },
+        headers: {if (token != null) 'Authorization': 'Bearer $token'},
         body: {'data': jsonData},
       );
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
-        // Expecting: {"profile": { "tag": "...", "bio": "..." }}
         if (decoded.containsKey('profile')) {
           final persona = decoded['profile'];
           await _db.updateProfile({
@@ -96,7 +158,7 @@ class ApiService {
     try {
       final token = await FirebaseAuth.instance.currentUser?.getIdToken();
 
-      final response = await http.post(
+      final response = await _postWithRetry(
         Uri.parse('$_baseUrl/challenge'),
         headers: {if (token != null) 'Authorization': 'Bearer $token'},
         body: {'data': jsonData},
@@ -105,23 +167,14 @@ class ApiService {
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
 
-        // 1. Check for the Outer Key
         if (decoded.containsKey('challenges')) {
           var content = decoded['challenges'];
 
-          // -----------------------------------------------------------
-          // FIX: Handle the "Double Wrap" Case
-          // -----------------------------------------------------------
-          // If 'content' is actually a Map (the inner dict), unwrap it again.
           if (content is Map<String, dynamic> &&
               content.containsKey('challenges')) {
-            print(
-              "⚠️ [ApiService] Detected double-wrapped JSON. Unwrapping...",
-            );
             content = content['challenges'];
           }
 
-          // 2. Now safely cast to List
           if (content is List) {
             final List rawList = content;
 
@@ -137,10 +190,6 @@ class ApiService {
                 "🔄 [ApiService] Challenges Replaced: ${newChallenges.length} items.",
               );
             }
-          } else {
-            print(
-              "❌ [ApiService] Expected List but got ${content.runtimeType}",
-            );
           }
         }
       } else {
@@ -152,15 +201,13 @@ class ApiService {
   }
 
   // ---------------------------------------------------------------------------
-  // 3. DATA COLLECTION (The "Packer")
+  // 4. DATA COLLECTION
   // ---------------------------------------------------------------------------
 
   Future<Map<String, dynamic>> _collectUserData() async {
     final profile = await _db.getProfile() ?? {};
-    final _ = await _db.getAllFromCollection('waterLogs');
     final allChallengeDocs = await _db.getAllFromCollection('challenges');
 
-    // Convert Docs to Models
     final allChallenges = allChallengeDocs.map((c) => Challenge.fromMap(c));
 
     return {
@@ -170,8 +217,6 @@ class ApiService {
         'bio': profile['bio'] ?? '',
         'tag': profile['tag'] ?? '',
       },
-      // Simplified: Just sending the lists.
-      // Your Python 'text_agent' will need to parse these lists.
       'active_challenges': allChallenges
           .where((c) => c.status == ChallengeStatus.active)
           .map((c) => c.toMap())
@@ -180,16 +225,13 @@ class ApiService {
           .where((c) => c.status == ChallengeStatus.completed)
           .map((c) => c.toMap())
           .toList(),
-      // Add water logs filtering logic here if needed
     };
   }
 
-  /// ---------------------------------------------------------------------------
-  /// 4. IMAGE RECOGNITION (Updated for Web Support)
-  /// ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // 5. IMAGE RECOGNITION
+  // ---------------------------------------------------------------------------
 
-  /// Accepts [imageBytes] (Uint8List) instead of File to support Web & Mobile.
-  /// [fileName] helps the backend identify the file format (e.g. "photo.jpg").
   Future<Map<String, dynamic>?> recognizeContainer(
     Uint8List imageBytes,
     String fileName,
@@ -199,69 +241,69 @@ class ApiService {
       "📷 [ApiService] Uploading image (${imageBytes.length} bytes) to $endpoint...",
     );
 
-    try {
-      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+    int attempt = 0;
+    const int maxRetries = 2;
 
-      // 1. Prepare Multipart Request
-      final request = http.MultipartRequest('POST', Uri.parse(endpoint));
+    while (attempt < maxRetries) {
+      try {
+        attempt++;
+        final token = await FirebaseAuth.instance.currentUser?.getIdToken();
 
-      // 2. Add Headers
-      if (token != null) {
-        request.headers['Authorization'] = 'Bearer $token';
-      }
+        // Instantiate a new request per attempt because streams cannot be reused.
+        final request = http.MultipartRequest('POST', Uri.parse(endpoint));
 
-      // 3. Add the Image File (Using fromBytes for Web compatibility)
-      request.files.add(
-        http.MultipartFile.fromBytes(
-          'file', // Key expected by backend
-          imageBytes,
-          filename: fileName,
-          contentType: MediaType(
-            'image',
-            'jpeg',
-          ), // Adjust if supporting PNG/etc
-        ),
-      );
-
-      // 4. Send & Await
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-
-      // 5. Handle Response
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        print("✅ [ApiService] AI Analysis Received: $decoded");
-
-        // The endpoint returns: {"analysis": ...data... }
-        var analysisData = decoded['analysis'];
-
-        // Safety Check: If backend returns a JSON string inside the JSON
-        if (analysisData is String) {
-          try {
-            // Strip potential markdown (```json ... ```) just in case
-            final cleanJson = analysisData
-                .replaceAll(RegExp(r'```json|```'), '')
-                .trim();
-            return jsonDecode(cleanJson) as Map<String, dynamic>;
-          } catch (e) {
-            print("⚠️ Could not parse analysis string: $e");
-            return null;
-          }
+        if (token != null) {
+          request.headers['Authorization'] = 'Bearer $token';
         }
 
-        // Standard Case: It's already a Map
-        if (analysisData is Map<String, dynamic>) {
-          return analysisData;
-        }
-      } else {
-        print(
-          "❌ [ApiService] Upload Error: ${response.statusCode} - ${response.body}",
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'file',
+            imageBytes,
+            filename: fileName,
+            contentType: MediaType('image', 'jpeg'),
+          ),
         );
-      }
-    } catch (e) {
-      print("❌ [ApiService] Connection Failed: $e");
-    }
 
-    return null; // Return null on failure so UI can show error/manual entry
+        final streamedResponse = await request.send().timeout(
+          const Duration(seconds: 45),
+        );
+        final response = await http.Response.fromStream(streamedResponse);
+
+        if (response.statusCode == 200) {
+          final decoded = jsonDecode(response.body);
+          var analysisData = decoded['analysis'];
+
+          if (analysisData is String) {
+            try {
+              final cleanJson = analysisData
+                  .replaceAll(RegExp(r'```json|```'), '')
+                  .trim();
+              return jsonDecode(cleanJson) as Map<String, dynamic>;
+            } catch (e) {
+              return null;
+            }
+          }
+
+          if (analysisData is Map<String, dynamic>) {
+            return analysisData;
+          }
+        } else {
+          print(
+            "❌ [ApiService] Upload Error: ${response.statusCode} - ${response.body}",
+          );
+          return null; // Do not retry client errors like 400 or 500
+        }
+      } on TimeoutException {
+        print("⚠️ [ApiService] Timeout on image upload attempt $attempt.");
+        if (attempt >= maxRetries) {
+          return null;
+        }
+      } catch (e) {
+        print("❌ [ApiService] Connection Failed: $e");
+        return null;
+      }
+    }
+    return null;
   }
 }

@@ -79,14 +79,14 @@ class AppTheme {
       // ✅ Material 3 Filled Buttons (correct replacement)
       filledButtonTheme: FilledButtonThemeData(
         style: ButtonStyle(
-          backgroundColor: MaterialStateProperty.all(primaryAction),
-          foregroundColor: MaterialStateProperty.all(Colors.white),
-          shape: MaterialStateProperty.all(
+          backgroundColor: WidgetStateProperty.all(primaryAction),
+          foregroundColor: WidgetStateProperty.all(Colors.white),
+          shape: WidgetStateProperty.all(
             RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(radiusM),
             ),
           ),
-          textStyle: MaterialStateProperty.all(
+          textStyle: WidgetStateProperty.all(
             GoogleFonts.plusJakartaSans(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -98,11 +98,11 @@ class AppTheme {
       // Outlined buttons
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: ButtonStyle(
-          foregroundColor: MaterialStateProperty.all(darkText),
-          side: MaterialStateProperty.all(
+          foregroundColor: WidgetStateProperty.all(darkText),
+          side: WidgetStateProperty.all(
             const BorderSide(color: Color(0xFFCBD5E1)),
           ),
-          shape: MaterialStateProperty.all(
+          shape: WidgetStateProperty.all(
             RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(radiusM),
             ),
@@ -113,8 +113,8 @@ class AppTheme {
       // Text buttons
       textButtonTheme: TextButtonThemeData(
         style: ButtonStyle(
-          foregroundColor: MaterialStateProperty.all(primaryAction),
-          shape: MaterialStateProperty.all(
+          foregroundColor: WidgetStateProperty.all(primaryAction),
+          shape: WidgetStateProperty.all(
             RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(radiusM),
             ),
@@ -143,8 +143,8 @@ class AppTheme {
 
       // Checkbox (fixed visibility)
       checkboxTheme: CheckboxThemeData(
-        fillColor: MaterialStateProperty.resolveWith(
-          (states) => states.contains(MaterialState.selected)
+        fillColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
               ? primaryAction
               : Colors.white,
         ),
@@ -154,13 +154,13 @@ class AppTheme {
 
       // Switch
       switchTheme: SwitchThemeData(
-        thumbColor: MaterialStateProperty.resolveWith(
-          (states) => states.contains(MaterialState.selected)
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
               ? accent
               : const Color(0xFF94A3B8),
         ),
-        trackColor: MaterialStateProperty.resolveWith(
-          (states) => states.contains(MaterialState.selected)
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
               ? accent.withOpacity(0.3)
               : const Color(0xFFE2E8F0),
         ),

@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../auth/auth_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
-  const SettingsScreen({Key? key}) : super(key: key);
+  const SettingsScreen({super.key});
 
   Future<void> _handleLogout(BuildContext context, WidgetRef ref) async {
     final confirm = await showDialog<bool>(

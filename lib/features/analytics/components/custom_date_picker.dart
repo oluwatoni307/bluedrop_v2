@@ -7,12 +7,12 @@ class CustomDatePicker extends StatefulWidget {
   final VoidCallback onCancel;
 
   const CustomDatePicker({
-    Key? key,
+    super.key,
     this.initialStartDate,
     this.initialEndDate,
     required this.onApply,
     required this.onCancel,
-  }) : super(key: key);
+  });
 
   @override
   State<CustomDatePicker> createState() => _CustomDatePickerState();

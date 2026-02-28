@@ -47,7 +47,7 @@ dependencies:
   go_router: ^17.0.1
   flutter_markdown: ^0.7.7+1
   http: ^1.6.0
-  flutter_local_notifications: ^19.5.0
+  flutter_local_notifications: ^20.0.0
   timezone: ^0.10.1
   # The Notification Engine
 
@@ -60,6 +60,7 @@ dependencies:
   permission_handler: ^11.0.0
   package_info_plus: 9.0.0
   image_picker: ^1.2.1
+  firebase_messaging: ^16.1.1
 
 dev_dependencies:
   flutter_test:

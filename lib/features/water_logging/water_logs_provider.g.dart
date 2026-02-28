@@ -33,7 +33,7 @@ final class WaterLogsProvider
   WaterLogs create() => WaterLogs();
 }
 
-String _$waterLogsHash() => r'7b5cf34c73653a78b334dd5db299e04e7be64326';
+String _$waterLogsHash() => r'c9d93f77127ae71bd397706798d8544fd3de9377';
 
 abstract class _$WaterLogs extends $AsyncNotifier<WaterLoggingState> {
   FutureOr<WaterLoggingState> build();

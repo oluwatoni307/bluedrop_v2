@@ -1,139 +1,442 @@
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter/foundation.dart'; // For debugPrint
+// import 'package:hive/hive.dart';
+// import 'package:timezone/timezone.dart' as tz;
+// import 'notification_engine.dart'; // Ensure this path is correct
 
-class AndroidNotificationEngine {
-  // Singleton pattern
-  static final AndroidNotificationEngine _instance =
-      AndroidNotificationEngine._internal();
-  factory AndroidNotificationEngine() => _instance;
+// // ==========================================
+// // DATA MODEL (Internal Use)
+// // ==========================================
+// class NotificationRequest {
+//   final int slotIndex;
+//   final String title;
+//   final String body;
+//   final int hour;
+//   final int minute;
+//   final DateTime endDate;
+//   final bool isActive;
 
-  final FlutterLocalNotificationsPlugin _plugin;
+//   NotificationRequest({
+//     required this.slotIndex,
+//     required this.title,
+//     required this.body,
+//     required this.hour,
+//     required this.minute,
+//     required this.endDate,
+//     required this.isActive,
+//   });
+// }
 
-  // Private constructor
-  AndroidNotificationEngine._internal()
-    : _plugin = FlutterLocalNotificationsPlugin();
+// class NotificationService {
+//   final AndroidNotificationEngine _engine = AndroidNotificationEngine();
 
-  /// **1. Initialization Sequence**
-  /// This must be called in `main()` before `runApp()`.
-  /// It sets up the icon, initializes the plugin, and registers channels.
-  Future<void> initialize() async {
-    // SECURITY: Ensure the icon exists in 'android/app/src/main/res/drawable'
-    // If '@mipmap/ic_launcher' is missing, the app will crash immediately.
-    const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+//   // --- ID CONSTANTS ---
+//   static const int _waterMorningBaseId = 100;
+//   static const int _waterAfternoonBaseId = 150; // 🆕 2 PM Slot
+//   static const int _waterEveningBaseId = 200;
+//   static const int _extra1BaseId = 300;
+//   static const int _extra2BaseId = 400;
 
-    final InitializationSettings settings = InitializationSettings(
-      android: androidSettings,
-    );
+//   // ==========================================
+//   // 1. HIVE PERSISTENCE
+//   // ==========================================
 
-    await _plugin.initialize(
-      settings,
-      onDidReceiveNotificationResponse: (NotificationResponse response) {
-        // This is the entry point for deep linking (Phase 4)
-        debugPrint('Notification Tapped. Payload: ${response.payload}');
-      },
-    );
+//   /// READ: Fetches the config map.
+//   Map<dynamic, dynamic> get notificationData {
+//     if (!Hive.isBoxOpen('reminders')) {
+//       print("⚠️ Error: 'reminders' box is not open!");
+//       return {};
+//     }
+//     return Hive.box('reminders').get('notification_data', defaultValue: {});
+//   }
 
-    // CRITICAL: Android 8.0+ requires channels to be created before any notification is shown.
-    await _createNotificationChannels();
-  }
+//   /// WRITE: Saves the map.
+//   Future<void> _saveData(Map<dynamic, dynamic> data) async {
+//     final box = Hive.box('reminders');
+//     await box.put('notification_data', data);
+//     print("💾 Notification Data Saved.");
+//   }
 
-  /// **2. Channel Registration (API 26+)**
-  /// Defines the "pipelines" through which notifications flow.
-  Future<void> _createNotificationChannels() async {
-    final androidImplementation = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
+//   /// SEED: Initializes DEFAULT settings.
+//   Future<void> initializeDefaultData() async {
+//     final box = Hive.box('reminders');
 
-    // Safety check: ensure we are actually on Android
-    if (androidImplementation == null) return;
-    // ✅ FIX 1: Add 'await' so the app pauses here until the dialog is handled
-    await requestPermissions();
+//     if (!box.containsKey('notification_data')) {
+//       print("🌱 Seeding default notification data...");
 
-    // ✅ FIX 2: Add 'await' (though on Android 14 this often auto-denies, see below)
-    await checkExactAlarmPermission();
-    // Channel A: High Importance (Heads-up Display, Sound)
-    // Use Case: Study reminders, Exam alerts.
-    const AndroidNotificationChannel studyChannel = AndroidNotificationChannel(
-      'study_reminders_v1', // ID: Change this if you update channel settings later
-      'Study Reminders', // Visible Name
-      description: 'Critical alerts for exam preparation',
-      importance: Importance.max,
-      playSound: true,
-      enableVibration: true,
-    );
+//       final Map<String, dynamic> defaultData = {
+//         'data': DateTime.now(), // Start Date
+//         // Water Configuration
+//         'waterchallenge': {
+//           'active': false, // Challenge Mode is OFF
+//           'reminders_enabled': true, // Daily Nudges are ON
+//           'title': 'Hydration Time! 💧',
+//           'body': 'Time to drink water.',
+//           'end_date': DateTime.now().add(const Duration(days: 30)),
+//         },
 
-    // Channel B: Low Importance (Silent, Minimized)
-    // Use Case: Progress updates, Background sync.
-    const AndroidNotificationChannel backgroundChannel =
-        AndroidNotificationChannel(
-          'background_sync_v1',
-          'System Updates',
-          description: 'Silent background activity',
-          importance: Importance.low, // No sound, no visual interruption
-          playSound: false,
-          enableVibration: false,
-        );
+//         // Side Challenge Placeholders (Inactive)
+//         'sidechallenges': [
+//           {
+//             'active': false,
+//             'slot_index': 1,
+//             'title': 'Side Challenge 1',
+//             'body': 'Description goes here.',
+//             'hour': 10,
+//             'minute': 0,
+//             'end_date': DateTime.now().add(const Duration(days: 14)),
+//           },
+//           {
+//             'active': false,
+//             'slot_index': 2,
+//             'title': 'Side Challenge 2',
+//             'body': 'Description goes here.',
+//             'hour': 16,
+//             'minute': 0,
+//             'end_date': DateTime.now().add(const Duration(days: 7)),
+//           },
+//         ],
+//       };
 
-    await androidImplementation.createNotificationChannel(studyChannel);
-    await androidImplementation.createNotificationChannel(backgroundChannel);
-  }
+//       await box.put('notification_data', defaultData);
+//     }
+//   }
 
-  /// **3. Permission Request (API 33+)**
-  /// Call this when the user enables a feature (e.g., toggles "Remind Me").
-  /// Returns [true] if granted.
-  Future<bool> requestPermissions() async {
-    final androidImplementation = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
+//   // ==========================================
+//   // 2. SYNC ENGINE (The Brain)
+//   // ==========================================
 
-    if (androidImplementation == null) return false;
+//   Future<void> sync({bool hardSync = false}) async {
+//     print("🔄 Starting Sync (Hard Sync: $hardSync)...");
 
-    // Requests the 'android.permission.POST_NOTIFICATIONS' permission.
-    final bool? granted = await androidImplementation
-        .requestNotificationsPermission();
+//     var data = notificationData;
+//     if (data.isEmpty) return;
 
-    return granted ?? false;
-  }
+//     DateTime lastScheduledDate = data['data'] as DateTime;
+//     final DateTime now = DateTime.now();
 
-  /// **4. Check Exact Alarm Permission (API 34+)**
-  /// Google restricts 'SCHEDULE_EXACT_ALARM'. Use this to check if we can
-  /// schedule precise timers. If false, fallback to inexact scheduling.
-  Future<bool> checkExactAlarmPermission() async {
-    final androidImplementation = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
+//     // --- A. ROLLING WINDOW CHECK ---
+//     // If schedule is older than 4 days, renew it for another week.
+//     final int daysSinceLastSync = now.difference(lastScheduledDate).inDays;
 
-    // If the method is not available (older Android), we assume true/supported.
-    return await androidImplementation?.requestExactAlarmsPermission() ?? true;
-  }
+//     if (daysSinceLastSync >= 4) {
+//       print("⚠️ Schedule stale ($daysSinceLastSync days). Renewing...");
 
-  /// **5. Instant Notification (Smoke Test)**
-  /// Use this to verify the 'study_reminders' channel works.
-  Future<void> showInstantNotification({
-    required int id,
-    required String title,
-    required String body,
-    String? payload,
-  }) async {
-    await _plugin.show(
-      id,
-      title,
-      body,
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'study_reminders_v1', // MUST match the ID in _createNotificationChannels
-          'Study Reminders',
-          channelDescription: 'Critical alerts for exam preparation',
-          importance: Importance.max,
-          priority: Priority.high,
-          ticker: 'ticker',
-        ),
-      ),
-      payload: payload,
-    );
-  }
-}
+//       // Update Start Date to NOW
+//       final Map<dynamic, dynamic> newData = Map.from(data);
+//       newData['data'] = now;
+//       await _saveData(newData);
+
+//       // Refresh local vars
+//       data = newData;
+//       lastScheduledDate = now;
+//       hardSync = true; // Force re-schedule
+//     } else if (!hardSync) {
+//       print(
+//         "✅ Schedule healthy ($daysSinceLastSync days old). No sync needed.",
+//       );
+//       return;
+//     }
+
+//     // --- B. WATER SCHEDULE LOGIC ---
+//     final Map<dynamic, dynamic> waterMap = data['waterchallenge'];
+
+//     // Check if GLOBAL reminders are enabled (Default: True)
+//     final bool areRemindersOn = waterMap['reminders_enabled'] ?? true;
+
+//     if (areRemindersOn) {
+//       // Logic: Use Challenge Text if Active, otherwise Default Text
+//       String displayTitle = "Hydration Check 💧";
+//       String displayBody = "Stay hydrated and healthy!";
+
+//       if (waterMap['active'] == true) {
+//         displayTitle = waterMap['title'] ?? displayTitle;
+//         displayBody = waterMap['body'] ?? displayBody;
+//       }
+
+//       await _scheduleWaterReminders(
+//         lastScheduledDate,
+//         displayTitle,
+//         displayBody,
+//         waterMap['end_date'],
+//       );
+//     } else {
+//       print("⏸️ All Water Reminders are disabled.");
+//       await _cancelAllWater(); // Ensure they are dead
+//     }
+
+//     // --- C. SIDE CHALLENGES LOGIC ---
+//     List<NotificationRequest> extraRequests = [];
+//     if (data['sidechallenges'] != null) {
+//       final List<dynamic> rawList = data['sidechallenges'];
+//       extraRequests = rawList.map((item) {
+//         return NotificationRequest(
+//           slotIndex: item['slot_index'],
+//           title: item['title'],
+//           body: item['body'],
+//           hour: item['hour'],
+//           minute: item['minute'],
+//           endDate: item['end_date'],
+//           isActive: item['active'] ?? false,
+//         );
+//       }).toList();
+//     }
+
+//     await _scheduleExtraReminders(lastScheduledDate, extraRequests);
+//     print("✨ Sync Complete.");
+//   }
+
+//   // ==========================================
+//   // 3. SCHEDULING LOGIC (3x Daily)
+//   // ==========================================
+
+//   Future<void> _scheduleWaterReminders(
+//     DateTime startDate,
+//     String title,
+//     String body,
+//     DateTime waterEndDate,
+//   ) async {
+//     final DateTime now = DateTime.now();
+//     // Safety check: Don't schedule if end date is passed
+//     if (waterEndDate.isBefore(now)) return;
+
+//     // Schedule for next 7 days
+//     for (int day = 0; day <= 7; day++) {
+//       // 1. Morning (9:00 AM)
+//       final tz.TZDateTime morningDate = _constructDateTime(
+//         startDate,
+//         day,
+//         9,
+//         0,
+//       );
+
+//       // 2. Afternoon (2:00 PM) - 🆕 NEW
+//       final tz.TZDateTime afternoonDate = _constructDateTime(
+//         startDate,
+//         day,
+//         14,
+//         0,
+//       );
+
+//       // 3. Evening (6:00 PM)
+//       final tz.TZDateTime eveningDate = _constructDateTime(
+//         startDate,
+//         day,
+//         18,
+//         0,
+//       );
+
+//       final List<({tz.TZDateTime date, int baseId})> slots = [
+//         (date: morningDate, baseId: _waterMorningBaseId),
+//         (date: afternoonDate, baseId: _waterAfternoonBaseId),
+//         (date: eveningDate, baseId: _waterEveningBaseId),
+//       ];
+
+//       for (var slot in slots) {
+//         // Only schedule if it's in the future AND before the challenge ends
+//         if (slot.date.isAfter(now) && slot.date.isBefore(waterEndDate)) {
+//           await _engine.scheduleTargetedNotification(
+//             id: slot.baseId + day,
+//             title: title,
+//             body: body,
+//             scheduledDate: slot.date,
+//           );
+//         }
+//       }
+//     }
+//     print("✅ Scheduled Water Reminders (9am, 2pm, 6pm) for 7 days.");
+//   }
+
+//   Future<void> _scheduleExtraReminders(
+//     DateTime startDate,
+//     List<NotificationRequest> requests,
+//   ) async {
+//     final DateTime now = DateTime.now();
+
+//     for (int day = 0; day <= 7; day++) {
+//       for (final request in requests) {
+//         if (!request.isActive) continue;
+
+//         final tz.TZDateTime scheduledDate = _constructDateTime(
+//           startDate,
+//           day,
+//           request.hour,
+//           request.minute,
+//         );
+
+//         if (scheduledDate.isAfter(now) &&
+//             scheduledDate.isBefore(request.endDate)) {
+//           final int baseId = request.slotIndex == 1
+//               ? _extra1BaseId
+//               : _extra2BaseId;
+//           await _engine.scheduleTargetedNotification(
+//             id: baseId + day,
+//             title: request.title,
+//             body: request.body,
+//             scheduledDate: scheduledDate,
+//           );
+//         }
+//       }
+//     }
+//   }
+
+//   // ==========================================
+//   // 4. SETTERS (Public API)
+//   // ==========================================
+
+//   /// Toggle Global Reminders (On/Off)
+//   Future<void> toggleReminders(bool isEnabled) async {
+//     final Map<dynamic, dynamic> rootData = Map.from(notificationData);
+//     final Map<dynamic, dynamic> waterData = Map.from(
+//       rootData['waterchallenge'],
+//     );
+
+//     waterData['reminders_enabled'] = isEnabled;
+//     rootData['waterchallenge'] = waterData;
+
+//     await _saveData(rootData);
+//     await sync(hardSync: true); // Force update
+//   }
+
+//   /// Activate a specific Challenge
+//   Future<void> setWaterChallenge({
+//     bool? isActive,
+//     String? title,
+//     String? body,
+//     DateTime? endDate,
+//   }) async {
+//     final Map<dynamic, dynamic> rootData = Map.from(notificationData);
+//     final Map<dynamic, dynamic> waterData = Map.from(
+//       rootData['waterchallenge'],
+//     );
+
+//     if (isActive != null) waterData['active'] = isActive;
+//     if (title != null) waterData['title'] = title;
+//     if (body != null) waterData['body'] = body;
+//     if (endDate != null) waterData['end_date'] = endDate;
+
+//     // If activating, ensure global reminders are ON
+//     if (isActive == true) {
+//       waterData['reminders_enabled'] = true;
+//       rootData['data'] = DateTime.now(); // Reset cycle
+//     }
+
+//     rootData['waterchallenge'] = waterData;
+//     await _saveData(rootData);
+//     await sync(hardSync: true);
+//   }
+
+//   Future<void> setSideChallengeNotification(
+//     int slotIndex, {
+//     bool? isActive,
+//     String? title,
+//     String? body,
+//     int? hour,
+//     int? minute,
+//     DateTime? endDate,
+//   }) async {
+//     final Map<dynamic, dynamic> rootData = Map.from(notificationData);
+//     final List<dynamic> sideList = List.from(rootData['sidechallenges']);
+
+//     final int index = sideList.indexWhere((c) => c['slot_index'] == slotIndex);
+//     if (index == -1) return;
+
+//     final Map<dynamic, dynamic> challenge = Map.from(sideList[index]);
+
+//     if (isActive != null) challenge['active'] = isActive;
+//     if (title != null) challenge['title'] = title;
+//     if (body != null) challenge['body'] = body;
+//     if (hour != null) challenge['hour'] = hour;
+//     if (minute != null) challenge['minute'] = minute;
+//     if (endDate != null) challenge['end_date'] = endDate;
+
+//     sideList[index] = challenge;
+//     rootData['sidechallenges'] = sideList;
+//     await _saveData(rootData);
+
+//     if (isActive == false) {
+//       await _cancelSideChallenge(slotIndex);
+//     } else {
+//       await sync(hardSync: true);
+//     }
+//   }
+
+//   // ==========================================
+//   // 5. INTERNAL HELPERS
+//   // ==========================================
+
+//   tz.TZDateTime _constructDateTime(
+//     DateTime startDate,
+//     int dayOffset,
+//     int hour,
+//     int minute,
+//   ) {
+//     return tz.TZDateTime(
+//       tz.local,
+//       startDate.year,
+//       startDate.month,
+//       startDate.day + dayOffset,
+//       hour,
+//       minute,
+//     );
+//   }
+
+//   Future<void> _cancelAllWater() async {
+//     for (int i = 0; i <= 7; i++) {
+//       await _engine.cancelNotification(_waterMorningBaseId + i);
+//       await _engine.cancelNotification(_waterAfternoonBaseId + i);
+//       await _engine.cancelNotification(_waterEveningBaseId + i);
+//     }
+//     print("🚫 All Water Notifications Cancelled.");
+//   }
+
+//   Future<void> _cancelSideChallenge(int slotIndex) async {
+//     final int baseId = slotIndex == 1 ? _extra1BaseId : _extra2BaseId;
+//     for (int i = 0; i <= 7; i++) {
+//       await _engine.cancelNotification(baseId + i);
+//     }
+//   }
+
+//   // ==========================================
+//   // 6. KILL SWITCHES (Today Only)
+//   // ==========================================
+
+//   /// Cancels only TODAY's water notifications (Morning, Afternoon, Evening).
+//   /// Useful if user has already met their daily goal early.
+//   Future<void> cancelTodayWater() async {
+//     final data = notificationData;
+//     if (data.isEmpty) return;
+
+//     final DateTime setDate = data['data'];
+//     final DateTime now = DateTime.now();
+
+//     // Calculate which "Day Index" (0-7) corresponds to Today
+//     final int dayIndex = now.difference(setDate).inDays;
+
+//     // Only cancel if we are within the valid 7-day cycle
+//     if (dayIndex >= 0 && dayIndex <= 7) {
+//       print("🚫 Cancelling Water Reminders for Day $dayIndex (Today)...");
+
+//       await _engine.cancelNotification(_waterMorningBaseId + dayIndex);
+//       await _engine.cancelNotification(
+//         _waterAfternoonBaseId + dayIndex,
+//       ); // Don't forget Afternoon!
+//       await _engine.cancelNotification(_waterEveningBaseId + dayIndex);
+//     }
+//   }
+
+//   /// Cancels only TODAY's specific side challenge notification.
+//   Future<void> cancelTodayExtra(int slotIndex) async {
+//     final data = notificationData;
+//     if (data.isEmpty) return;
+
+//     final DateTime setDate = data['data'];
+//     final DateTime now = DateTime.now();
+//     final int dayIndex = now.difference(setDate).inDays;
+
+//     if (dayIndex >= 0 && dayIndex <= 7) {
+//       print("🚫 Cancelling Side Challenge $slotIndex for Day $dayIndex...");
+
+//       final int baseId = slotIndex == 1 ? _extra1BaseId : _extra2BaseId;
+//       await _engine.cancelNotification(baseId + dayIndex);
+//     }
+//   }
+// }

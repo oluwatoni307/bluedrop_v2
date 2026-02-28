@@ -10,12 +10,12 @@ class TodayProgressCard extends StatelessWidget {
   final VoidCallback onLogWater;
 
   const TodayProgressCard({
-    Key? key,
+    super.key,
     required this.totalAmount,
     required this.goalAmount,
     required this.percentage,
     required this.onLogWater,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

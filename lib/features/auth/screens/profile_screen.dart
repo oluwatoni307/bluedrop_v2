@@ -5,7 +5,7 @@ import '../auth_provider.dart';
 import '../auth_widgets.dart'; // Ensure ActivitySelector, HealthConditionCheckbox etc are here
 
 class ProfileSetupScreen extends ConsumerStatefulWidget {
-  const ProfileSetupScreen({Key? key}) : super(key: key);
+  const ProfileSetupScreen({super.key});
 
   @override
   ConsumerState<ProfileSetupScreen> createState() => _ProfileSetupScreenState();

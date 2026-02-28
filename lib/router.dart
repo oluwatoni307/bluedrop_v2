@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 // --- SCREENS ---
+// Ensure these paths match your project structure
 import 'app_shell.dart';
 import 'features/auth/screens/forgot_password_screen.dart';
 import 'features/auth/screens/login_screen.dart';
@@ -23,25 +24,70 @@ import 'features/water_logging/screens/water_log_page.dart';
 // --- PROVIDERS ---
 import 'features/auth/auth_provider.dart';
 
-// ✅ FIX 1: Define Keys OUTSIDE the provider so they persist
+// -----------------------------------------------------------------------------
+// 1. APP STARTUP NOTIFIER
+// -----------------------------------------------------------------------------
+// This replaces the old StateProvider. It tracks if the splash screen logic is done.
+final appStartupProvider = NotifierProvider<AppStartupNotifier, bool>(
+  AppStartupNotifier.new,
+);
+
+class AppStartupNotifier extends Notifier<bool> {
+  @override
+  bool build() {
+    return false; // Default state: App is NOT initialized
+  }
+
+  void setInitialized() {
+    state = true;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 2. NAVIGATOR KEYS
+// -----------------------------------------------------------------------------
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
+// -----------------------------------------------------------------------------
+// 3. ROUTER PROVIDER
+// -----------------------------------------------------------------------------
 final routerProvider = Provider<GoRouter>((ref) {
-  // ✅ FIX 2: Watch the Notifier, not the Auth State directly
+  // This validates that the router will rebuild if auth/startup state changes
   final notifier = ref.watch(routerNotifierProvider.notifier);
 
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
-    // This allows the router to react to changes without rebuilding itself
     refreshListenable: notifier,
     initialLocation: '/splash',
+    debugLogDiagnostics: true, // Useful for debugging redirects
+
     redirect: (context, state) {
-      // ✅ Use READ here, because the refreshListenable triggers the check
+      // --- A. STARTUP GATE ---
+      // If app hasn't finished initializing, FORCE stay on Splash
+      final isAppInitialized = ref.read(appStartupProvider);
+
+      if (!isAppInitialized) {
+        // If we are already on splash, do nothing (return null).
+        // If we are elsewhere, go to splash.
+        return state.uri.toString() == '/splash' ? null : '/splash';
+      }
+
+      // --- B. AUTHENTICATION LOGIC ---
       final authState = ref.read(authProvider);
       final auth = authState.value;
 
+      final isLoading = authState.isLoading || authState.hasError;
+      if (isLoading) return null; // Don't redirect while loading
+
+      final isLoggedIn = auth?.isAuthenticated ?? false;
+      final isFinishedOnboarding = auth?.profile?.onboardingCompleted ?? false;
+      final isFinishedSetup = auth?.profile?.isSetupComplete ?? false;
+
+      // Where are we trying to go?
       final location = state.uri.toString();
+
+      // Define public routes
       final isSplash = location == '/splash';
       final isLogin = location == '/login';
       final isSignup = location == '/signup';
@@ -49,57 +95,53 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isOnboarding = location == '/onboarding';
       final isSetup = location == '/setup';
 
-      final isPublicRoute = isLogin || isSignup || isForgot || isOnboarding;
-      final isAuthenticated = auth?.isAuthenticated ?? false;
+      // Bundle all "Public" routes
+      final isPublicRoute = isLogin || isSignup || isForgot || isSplash;
 
-      final hasFinishedOnboarding = auth?.profile?.onboardingCompleted ?? false;
-      final hasFinishedSetup = auth?.profile?.isSetupComplete ?? false;
-
-      // 1. Loading Phase
-      if (authState.isLoading || auth == null) return null;
-
-      // 2. Not Logged In
-      if (!isAuthenticated) {
-        if (isPublicRoute) return null;
-        return '/login';
+      // 1. If NOT logged in, block access to private pages
+      if (!isLoggedIn) {
+        return isPublicRoute ? null : '/login';
       }
 
-      // 3. Logged In: Gate 1 (Onboarding)
-      if (!hasFinishedOnboarding) {
-        return isOnboarding ? null : '/onboarding';
-      }
+      // // 2. If logged in but hasn't finished Onboarding
+      // if (isLoggedIn && !isFinishedOnboarding) {
+      //   return isOnboarding ? null : '/onboarding';
+      // }
 
-      // 4. Logged In: Gate 2 (Setup)
-      if (!hasFinishedSetup) {
+      // 3. If logged in, Onboarded, but hasn't finished Profile Setup
+      if (isLoggedIn && isFinishedOnboarding && !isFinishedSetup) {
         return isSetup ? null : '/setup';
       }
 
-      // 5. Fully Authenticated
-      if (isSplash || isPublicRoute || isSetup) {
-        return '/';
+      // 4. If fully authenticated, kick them OUT of public pages (like login/splash)
+      if (isLoggedIn && (isPublicRoute || isOnboarding || isSetup)) {
+        return '/'; // Send to Home
       }
 
-      return null;
+      return null; // No redirection needed
     },
+
     routes: [
       GoRoute(
         path: '/splash',
-        builder: (context, state) => const SplashScreen(),
+        builder: (context, state) => SplashScreen(
+          onInitialized: () {
+            // Modern call to the Notifier to unlock the app
+            ref.read(appStartupProvider.notifier).setInitialized();
+          },
+        ),
       ),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(
         path: '/signup',
-        name: 'signup',
         builder: (context, state) => const SignupScreen(),
       ),
       GoRoute(
         path: '/forgot-password',
-        name: 'forgot-password',
         builder: (context, state) => const ForgotPasswordScreen(),
       ),
       GoRoute(
         path: '/onboarding',
-        name: 'onboarding',
         builder: (context, state) => const OnboardingScreen(),
       ),
       GoRoute(
@@ -107,7 +149,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const ProfileSetupScreen(),
       ),
 
-      // --- APP SHELL ---
+      // --- APP SHELL (Bottom Navigation) ---
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) {
@@ -144,61 +186,49 @@ final routerProvider = Provider<GoRouter>((ref) {
             pageBuilder: (context, state) =>
                 const NoTransitionPage(child: SettingsScreen()),
           ),
-          GoRoute(
-            path: '/profile',
-            name: 'profile',
-            pageBuilder: (context, state) =>
-                const NoTransitionPage(child: ProfileSetupScreen()),
-          ),
         ],
       ),
-
-      // --- SUB ROUTES ---
+      // --- INDEPENDENT ROUTES ---
       GoRoute(
         path: '/edit-profile',
-        name: 'edit-profile',
         builder: (context, state) => const EditProfileScreen(),
       ),
       GoRoute(
-        path: '/setting/notifications',
-        name: 'notifications',
-        builder: (context, state) => const Scaffold(
-          body: Center(child: Text("Notifications Settings (Coming Soon)")),
-        ),
-      ),
-      GoRoute(
         path: '/log',
-        name: 'log',
+        name: 'log', // ✅ ADD THIS LINE
+        parentNavigatorKey: _rootNavigatorKey, // ✅ ADD THIS (Covers bottom nav)
         builder: (context, state) => const WaterLogPage(),
       ),
       GoRoute(
         path: '/presets',
-        name: 'presets',
         builder: (context, state) => const PresetsScreen(),
       ),
       GoRoute(
         path: '/custom-log',
-        name: 'custom-log',
         builder: (context, state) => const CustomLogScreen(),
       ),
     ],
   );
 });
 
-// ✅ HELPER: Bridges Auth changes to Router refresh
-final routerNotifierProvider = AsyncNotifierProvider<RouterNotifier, void>(() {
-  return RouterNotifier();
-});
+// -----------------------------------------------------------------------------
+// 4. ROUTER NOTIFIER
+// -----------------------------------------------------------------------------
+// This bridges Riverpod state to GoRouter's refreshListenable
+final routerNotifierProvider = AsyncNotifierProvider<RouterNotifier, void>(
+  RouterNotifier.new,
+);
 
 class RouterNotifier extends AsyncNotifier<void> implements Listenable {
   VoidCallback? _listener;
 
   @override
   Future<void> build() async {
-    // Listen to Auth and notify the router when it changes
-    ref.listen(authProvider, (_, __) {
-      _listener?.call();
-    });
+    // Watch Auth Provider: Any change here triggers a redirect check
+    ref.listen(authProvider, (_, __) => _listener?.call());
+
+    // Watch Startup Provider: Any change here triggers a redirect check
+    ref.listen(appStartupProvider, (_, __) => _listener?.call());
   }
 
   @override

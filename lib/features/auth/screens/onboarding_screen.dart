@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../auth_provider.dart';
 
 class OnboardingScreen extends ConsumerStatefulWidget {
-  const OnboardingScreen({Key? key}) : super(key: key);
+  const OnboardingScreen({super.key});
 
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -127,7 +127,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
 // --- SLIDE 1: SMART SCIENCE ---
 class _OnboardingPage1 extends StatelessWidget {
-  const _OnboardingPage1({Key? key}) : super(key: key);
+  const _OnboardingPage1({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -165,7 +165,7 @@ class _OnboardingPage1 extends StatelessWidget {
 
 // --- SLIDE 2: THE CABINET ---
 class _OnboardingPage2 extends StatelessWidget {
-  const _OnboardingPage2({Key? key}) : super(key: key);
+  const _OnboardingPage2({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -203,7 +203,7 @@ class _OnboardingPage2 extends StatelessWidget {
 
 // --- SLIDE 3: CHALLENGES & GAMIFICATION ---
 class _OnboardingPage3 extends StatelessWidget {
-  const _OnboardingPage3({Key? key}) : super(key: key);
+  const _OnboardingPage3({super.key});
 
   @override
   Widget build(BuildContext context) {

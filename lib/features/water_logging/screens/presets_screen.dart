@@ -443,7 +443,7 @@ class _PresetDialogState extends State<_PresetDialog> {
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
-            value: _selectedType,
+            initialValue: _selectedType,
             decoration: const InputDecoration(
               labelText: 'Drink Type',
               border: OutlineInputBorder(),

@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'edit_profile_repo.dart'; // Ensure path is correct
 
 class EditProfileScreen extends ConsumerStatefulWidget {
-  const EditProfileScreen({Key? key}) : super(key: key);
+  const EditProfileScreen({super.key});
 
   @override
   ConsumerState<EditProfileScreen> createState() => _EditProfileScreenState();
@@ -76,9 +76,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     double goal = weight * 35;
 
     // 2. Activity Multiplier
-    if (activityLevel == 'high')
+    if (activityLevel == 'high') {
       goal *= 1.5;
-    else if (activityLevel == 'moderate')
+    } else if (activityLevel == 'moderate')
       goal *= 1.2;
 
     // 3. Climate Adjustment
@@ -414,8 +414,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   // --- UI BUILD ---
   @override
   Widget build(BuildContext context) {
-    if (_isLoading)
+    if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
     final name = _profile['name'] as String? ?? 'User';
     final email = _profile['email'] as String? ?? 'No Email';
@@ -439,7 +440,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         ),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 50),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

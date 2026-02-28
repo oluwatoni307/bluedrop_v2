@@ -4,7 +4,7 @@ import 'app_bottom_nav_bar.dart';
 
 class AppShell extends StatelessWidget {
   final Widget child;
-  const AppShell({Key? key, required this.child}) : super(key: key);
+  const AppShell({super.key, required this.child});
 
   void _onTap(BuildContext context, int index) {
     switch (index) {

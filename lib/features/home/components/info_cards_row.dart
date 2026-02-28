@@ -9,12 +9,12 @@ class InfoCardsRow extends StatelessWidget {
   final int activeChallengesCount;
 
   const InfoCardsRow({
-    Key? key,
+    super.key,
     required this.glassLevel,
     required this.lastLogTime,
     required this.lastLogAmount,
     required this.activeChallengesCount,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -194,10 +194,10 @@ class ElegantGlassWidget extends StatefulWidget {
   final Color waterColor;
 
   const ElegantGlassWidget({
-    Key? key,
+    super.key,
     required this.level,
     this.waterColor = Colors.lightBlueAccent,
-  }) : super(key: key);
+  });
 
   @override
   State<ElegantGlassWidget> createState() => _ElegantGlassWidgetState();

@@ -41,10 +41,36 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
   // ===========================================================================
 
   Future<void> _handleScan() async {
+    // 1. Prompt user to select image source
+    final ImageSource? selectedSource = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Wrap(
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Take a Photo'),
+                onTap: () => Navigator.of(context).pop(ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Choose from Gallery'),
+                onTap: () => Navigator.of(context).pop(ImageSource.gallery),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    // Terminate function if the user dismisses the bottom sheet
+    if (selectedSource == null) return;
+
     try {
-      // 1. Pick Image
+      // 2. Pick Image using the selected source
       final XFile? photo = await _picker.pickImage(
-        source: ImageSource.camera,
+        source: selectedSource,
         imageQuality: 50,
       );
 
@@ -52,10 +78,10 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
 
       setState(() => _isAnalyzing = true);
 
-      // 2. Read bytes (Cross-platform safe)
+      // 3. Read bytes (Cross-platform safe)
       final Uint8List imageBytes = await photo.readAsBytes();
 
-      // 3. Send to AI (Repo expects bytes + filename)
+      // 4. Send to AI (Repo expects bytes + filename)
       final UserContainer? draft = await _repo.analyzeContainerImage(
         imageBytes,
         photo.name,
@@ -64,7 +90,8 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
       setState(() => _isAnalyzing = false);
 
       if (draft != null) {
-        if (mounted) _showContainerForm(initialData: draft);
+        // Pass isDraft: true to force a new database entry
+        if (mounted) _showContainerForm(initialData: draft, isDraft: true);
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -81,7 +108,8 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
     }
   }
 
-  void _showContainerForm({UserContainer? initialData}) {
+  // Added isDraft parameter to differentiate new AI scans from existing database records
+  void _showContainerForm({UserContainer? initialData, bool isDraft = false}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -89,8 +117,8 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
       builder: (context) => ContainerFormSheet(
         initialData: initialData,
 
-        // 1. Pass Delete Logic (Only for existing items)
-        onDelete: initialData == null || initialData.id.isEmpty
+        // 1. Pass Delete Logic (Only for existing items, never for drafts)
+        onDelete: (initialData == null || initialData.id.isEmpty || isDraft)
             ? null
             : () {
                 Navigator.pop(context); // Close sheet
@@ -99,11 +127,10 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
 
         // 2. Pass Save/Update Logic
         onSave: (name, volume, icon) async {
-          // Check if we are updating an existing item (has ID) or creating new
-          // Note: Drafts from AI usually have empty IDs or temp IDs depending on your model logic.
-          // We assume if it came from DB, it has a valid ID.
-
-          if (initialData != null && initialData.id.isNotEmpty) {
+          // Check if we are updating an existing item (has ID and is NOT a draft)
+          if (initialData != null &&
+              initialData.id.isNotEmpty &&
+              isDraft == false) {
             // --- UPDATE ---
             final updatedContainer = UserContainer(
               id: initialData.id,
@@ -207,7 +234,6 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
   }
 
   Widget _buildGrid() {
-    // FIX: Using Column + Expanded to avoid "unbounded height" crash
     return Column(
       children: [
         // Top Hint Text
@@ -259,7 +285,9 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: () => _showContainerForm(initialData: item), // Tap to Edit
+          onTap: () => _showContainerForm(
+            initialData: item,
+          ), // Tap to Edit (isDraft defaults to false)
           onLongPress: () => _confirmDelete(item.id), // Long press to Delete
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),

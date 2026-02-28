@@ -16,7 +16,7 @@ class CustomTextField extends StatelessWidget {
   final void Function(String)? onChanged;
 
   const CustomTextField({
-    Key? key,
+    super.key,
     required this.label,
     this.hint,
     required this.controller,
@@ -27,7 +27,7 @@ class CustomTextField extends StatelessWidget {
     this.enabled = true,
     this.inputFormatters,
     this.onChanged,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -98,13 +98,13 @@ class PasswordField extends StatefulWidget {
   final void Function(String)? onChanged;
 
   const PasswordField({
-    Key? key,
+    super.key,
     required this.label,
     this.hint,
     required this.controller,
     this.errorText,
     this.onChanged,
-  }) : super(key: key);
+  });
 
   @override
   State<PasswordField> createState() => _PasswordFieldState();
@@ -192,13 +192,13 @@ class AuthButton extends StatelessWidget {
   final Color? backgroundColor;
 
   const AuthButton({
-    Key? key,
+    super.key,
     required this.text,
     required this.onPressed,
     this.isLoading = false,
     this.enabled = true,
     this.backgroundColor,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -244,11 +244,11 @@ class AuthTextButton extends StatelessWidget {
   final Color? color;
 
   const AuthTextButton({
-    Key? key,
+    super.key,
     required this.text,
     required this.onPressed,
     this.color,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -277,10 +277,10 @@ class ActivitySelector extends StatelessWidget {
   final ValueChanged<String> onChanged;
 
   const ActivitySelector({
-    Key? key,
+    super.key,
     required this.selectedActivity,
     required this.onChanged,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -332,13 +332,13 @@ class _ActivityOption extends StatelessWidget {
   final ValueChanged<String> onChanged;
 
   const _ActivityOption({
-    Key? key,
+    super.key,
     required this.label,
     required this.description,
     required this.value,
     required this.groupValue,
     required this.onChanged,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -404,11 +404,11 @@ class HealthConditionCheckbox extends StatelessWidget {
   final ValueChanged<bool?> onChanged;
 
   const HealthConditionCheckbox({
-    Key? key,
+    super.key,
     required this.label,
     required this.value,
     required this.onChanged,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -450,11 +450,11 @@ class LoadingOverlay extends StatelessWidget {
   final String? message;
 
   const LoadingOverlay({
-    Key? key,
+    super.key,
     required this.isLoading,
     required this.child,
     this.message,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

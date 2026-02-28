@@ -6,7 +6,7 @@ import '../auth_provider.dart';
 import '../auth_widgets.dart';
 
 class ProfileSetupScreen extends ConsumerStatefulWidget {
-  const ProfileSetupScreen({Key? key}) : super(key: key);
+  const ProfileSetupScreen({super.key});
 
   @override
   ConsumerState<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
@@ -14,11 +14,11 @@ class ProfileSetupScreen extends ConsumerStatefulWidget {
 
 class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   final _weightController = TextEditingController();
-  
+
   // State
-  String _selectedActivity = 'moderate'; 
+  String _selectedActivity = 'moderate';
   String _selectedClimate = 'moderate'; // Default
-  
+
   final Map<String, bool> _healthConditions = {
     'diabetic': false,
     'pregnant': false,
@@ -59,7 +59,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
           weight: weight,
           activityLevel: _selectedActivity,
           healthConditions: selectedConditions,
-          climate: _selectedClimate, 
+          climate: _selectedClimate,
         );
 
     setState(() => _estimatedGoal = goal);
@@ -202,7 +202,9 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                     keyboardType: TextInputType.number,
                     prefixIcon: const Icon(Icons.monitor_weight_outlined),
                     inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,1}')),
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'^\d+\.?\d{0,1}'),
+                      ),
                     ],
                     onChanged: (_) => _calculateEstimatedGoal(),
                   ),
@@ -256,7 +258,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                           },
                         ),
                         Divider(height: 1, color: Colors.grey.shade200),
-                        
+
                         // Option B: Hot
                         RadioListTile<String>(
                           title: const Text('Hot / Tropical'),
@@ -264,7 +266,10 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                           value: 'hot',
                           groupValue: _selectedClimate,
                           activeColor: Colors.orange,
-                          secondary: const Icon(Icons.wb_sunny_outlined, color: Colors.orange),
+                          secondary: const Icon(
+                            Icons.wb_sunny_outlined,
+                            color: Colors.orange,
+                          ),
                           onChanged: (val) {
                             setState(() => _selectedClimate = val!);
                             _calculateEstimatedGoal();
@@ -279,7 +284,10 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                           value: 'cold',
                           groupValue: _selectedClimate,
                           activeColor: Colors.cyan,
-                          secondary: const Icon(Icons.ac_unit, color: Colors.cyan),
+                          secondary: const Icon(
+                            Icons.ac_unit,
+                            color: Colors.cyan,
+                          ),
                           onChanged: (val) {
                             setState(() => _selectedClimate = val!);
                             _calculateEstimatedGoal();

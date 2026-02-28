@@ -7,19 +7,23 @@ plugins {
 
 android {
     namespace = "com.example.bluedrop_v2"
+    
+    // ✅ CRITICAL: flutter_local_notifications 20.0.0+ requires API 35
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        // ✅ CRITICAL: Must be Java 17 for Desugaring 2.1.4+
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
         
-        // ✅ REQUIRED: Enable Core Library Desugaring for flutter_local_notifications
+        // ✅ REQUIRED: Enable Core Library Desugaring
         isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
+        // ✅ CRITICAL: Must match Java version above
+        jvmTarget = "17"
     }
 
     defaultConfig {
@@ -28,11 +32,15 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // ✅ RECOMMENDED: Prevents build errors when using Firebase + Desugaring
+        multiDexEnabled = true 
     }
 
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("debug")
+            // Note: If you add ProGuard later, configure it here.
         }
     }
 }
@@ -42,15 +50,12 @@ flutter {
 }
 
 dependencies {
-    // ✅ Core Library Desugaring (REQUIRED)
+    // ✅ Core Library Desugaring (REQUIRED for scheduled notifications)
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     
     // ✅ Firebase dependencies
     implementation(platform("com.google.firebase:firebase-bom:34.8.0"))
     implementation("com.google.firebase:firebase-analytics")
     
-    // Add other Firebase products as needed:
-    // implementation("com.google.firebase:firebase-auth")
-    // implementation("com.google.firebase:firebase-firestore")
-    // implementation("com.google.firebase:firebase-database")
+    // Add other Firebase products here if needed
 }

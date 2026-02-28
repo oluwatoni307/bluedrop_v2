@@ -44,24 +44,21 @@ class Auth extends _$Auth {
 
   @override
   Future<AuthState> build() async {
-    // Show loading state implicitly
+    // 1. Establish the initial loading state.
     state = AsyncValue.data(AuthState(isLoading: true));
 
-    // Check if user is logged in via Firebase
+    // 2. Verify local authentication status.
     if (_authService.isLoggedIn) {
-      try {
-        await _databaseService.syncAllFromCloud();
-      } catch (e) {
-        print('⚠️ Initial sync failed: $e');
-      }
-
+      // 3. Load the user profile exclusively from the local database.
       final profile = await _loadProfile();
+
+      // 4. Return the authenticated state immediately to trigger routing.
       return AuthState(isAuthenticated: true, profile: profile);
     }
 
+    // 5. Return the unauthenticated state if no local session exists.
     return AuthState(isAuthenticated: false);
   }
-
   // ===========================================================================
   // 🔐 AUTHENTICATION METHODS
   // ===========================================================================
@@ -330,9 +327,9 @@ class Auth extends _$Auth {
     double goal = weight * 35;
 
     // 2. Activity Multiplier
-    if (activityLevel == 'high')
+    if (activityLevel == 'high') {
       goal *= 1.5;
-    else if (activityLevel == 'moderate')
+    } else if (activityLevel == 'moderate')
       goal *= 1.2;
 
     // 3. Climate Adjustment
@@ -371,7 +368,18 @@ class Auth extends _$Auth {
   Future<UserProfile> _loadProfile() async {
     try {
       final profileMap = await _databaseService.getProfile();
-      return UserProfile.fromJson(profileMap!);
+
+      // ✅ FIX 2: Check for null explicitly instead of using '!'
+      // This prevents "Null check operator" crash on first run
+      if (profileMap == null) {
+        return UserProfile(
+          name: '',
+          email: _authService.userEmail ?? '',
+          createdAt: DateTime.now().toIso8601String(),
+        );
+      }
+
+      return UserProfile.fromJson(profileMap);
     } catch (e) {
       // Fallback
       return UserProfile(
@@ -427,8 +435,9 @@ class Auth extends _$Auth {
     String confirm,
   ) {
     if (name.trim().isEmpty) return 'Name is required';
-    if (email.trim().isEmpty || !email.contains('@'))
+    if (email.trim().isEmpty || !email.contains('@')) {
       return 'Valid email required';
+    }
     if (password.length < 6) return 'Min 6 characters required';
     if (password != confirm) return 'Passwords do not match';
     return null;

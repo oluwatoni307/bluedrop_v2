@@ -61,8 +61,9 @@ class HydrationBarChart extends StatelessWidget {
               reservedSize: 30,
               getTitlesWidget: (value, meta) {
                 final index = value.toInt();
-                if (index < 0 || index >= dataPoints.length)
+                if (index < 0 || index >= dataPoints.length) {
                   return const SizedBox();
+                }
 
                 final point = dataPoints[index];
 

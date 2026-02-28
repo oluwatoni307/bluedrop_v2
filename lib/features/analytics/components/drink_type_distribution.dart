@@ -3,10 +3,7 @@ import 'package:flutter/material.dart';
 class DrinkTypeDistribution extends StatelessWidget {
   final Map<String, double> distribution;
 
-  const DrinkTypeDistribution({
-    Key? key,
-    required this.distribution,
-  }) : super(key: key);
+  const DrinkTypeDistribution({super.key, required this.distribution});
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +33,7 @@ class DrinkTypeDistribution extends StatelessWidget {
                 percentage: entry.value,
                 color: _getDrinkTypeColor(entry.key, context),
               );
-            }).toList(),
+            }),
           ],
         ),
       ),
@@ -84,15 +81,12 @@ class _DistributionBar extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                label,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
+              Text(label, style: Theme.of(context).textTheme.bodyMedium),
               Text(
                 '${percentage.toStringAsFixed(1)}%',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
             ],
           ),

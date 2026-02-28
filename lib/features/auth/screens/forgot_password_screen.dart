@@ -6,7 +6,7 @@ import '../auth_widgets.dart';
 import 'package:go_router/go_router.dart';
 
 class ForgotPasswordScreen extends ConsumerStatefulWidget {
-  const ForgotPasswordScreen({Key? key}) : super(key: key);
+  const ForgotPasswordScreen({super.key});
 
   @override
   ConsumerState<ForgotPasswordScreen> createState() =>

@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
+// --- SERVICE IMPORTS ---
 import '../../../services/database_service.dart';
-// Adjust this import path to where your UserContainer file actually lives
+
+// --- MODEL IMPORTS ---
+// Ensure this path points to your actual UserContainer model file
 import '../../cabinet/model.dart';
+// Ensure this path points to where ContainerIcons is defined (likely repo.dart or model.dart)
 
 enum LogMode { cabinet, fruit }
 
 class SmartLogSheet extends ConsumerStatefulWidget {
   final LogMode mode;
 
-  const SmartLogSheet({Key? key, required this.mode}) : super(key: key);
+  const SmartLogSheet({super.key, required this.mode});
 
   @override
   ConsumerState<SmartLogSheet> createState() => _SmartLogSheetState();
@@ -34,45 +39,46 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
 
   Future<void> _loadItems() async {
     if (widget.mode == LogMode.fruit) {
-      // Load Static Fruits
+      // --- LOAD FRUITS ---
       if (mounted) {
         setState(() {
           _items = NIGERIAN_FRUITS;
-          _selectedItem = _items.isNotEmpty ? _items.first : null;
+          if (_items.isNotEmpty) _selectedItem = _items.first;
           _isLoading = false;
         });
       }
     } else {
-      // Load Cabinet from DB
+      // --- LOAD CABINET ---
       final db = DatabaseService();
       try {
-        final data = await db.getAllFromCollection('containers');
+        // FIX 1: Changed collection name to match ContainerRepository ('user_containers')
+        final data = await db.getAllFromCollection('user_containers');
 
-        // ✅ UPDATED: Use your UserContainer class
-        final containers = data.map((e) => UserContainer.fromMap(e)).toList();
+        print("📦 Debug: Found ${data.length} items in DB");
 
         if (mounted) {
           setState(() {
-            // ✅ UPDATED: Map UserContainer properties correctly
-            _items = containers
-                .map(
-                  (c) => LoggableItem(
-                    id: c.id,
-                    name: c.name,
-                    amount: c.volume, // using .volume instead of .capacity
-                    icon: ContainerIcons.getIcon(
-                      c.iconType,
-                    ), // using your Icon Helper
-                    isVariableType: true,
-                  ),
-                )
-                .toList();
+            _items = data.map((e) {
+              // Convert DB Map -> UserContainer Model
+              final container = UserContainer.fromMap(e);
+
+              // Convert Model -> LoggableItem (for this sheet)
+              return LoggableItem(
+                id: container.id,
+                name: container.name,
+                amount: container.volume,
+                // Use the helper from your repo to get the IconData
+                icon: ContainerIcons.getIcon(container.iconType),
+                isVariableType: true,
+              );
+            }).toList();
 
             if (_items.isNotEmpty) _selectedItem = _items.first;
             _isLoading = false;
           });
         }
       } catch (e) {
+        print("❌ Error loading cabinet: $e");
         if (mounted) setState(() => _isLoading = false);
       }
     }
@@ -86,6 +92,7 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
         ? 'Fruit'
         : _selectedDrinkType;
 
+    // Return result to parent
     context.pop({'amount': totalAmount, 'type': finalType});
   }
 
@@ -120,13 +127,11 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
           ),
           const SizedBox(height: 16),
 
-          // 2. Content
+          // 2. Content Area
           if (_isLoading)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: CircularProgressIndicator(),
-              ),
+            const SizedBox(
+              height: 150,
+              child: Center(child: CircularProgressIndicator()),
             )
           else if (_items.isEmpty)
             _buildEmptyState()
@@ -216,15 +221,18 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
                 : Text(item.emojiOrIcon, style: const TextStyle(fontSize: 32)),
 
             const SizedBox(height: 8),
-            Text(
-              item.name,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                color: isSelected ? Colors.blue : Colors.black87,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                item.name,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  color: isSelected ? Colors.blue : Colors.black87,
+                ),
               ),
             ),
             Text(
@@ -331,11 +339,6 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(width: 8),
-                // Display Icon for Cabinet items
-                if (widget.mode == LogMode.cabinet &&
-                    _selectedItem!.icon != null)
-                  Icon(_selectedItem!.icon, color: Colors.grey),
               ],
             ),
           ],
@@ -347,16 +350,23 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
   Widget _buildEmptyState() {
     return Column(
       children: [
-        const Icon(Icons.shelves, size: 48, color: Colors.grey),
+        const SizedBox(height: 20),
+        const Icon(Icons.shelves, size: 64, color: Colors.grey),
+        const SizedBox(height: 16),
+        const Text(
+          'Your cabinet is empty!',
+          style: TextStyle(fontSize: 16, color: Colors.grey),
+        ),
         const SizedBox(height: 8),
-        const Text('Your cabinet is empty!'),
         TextButton(
           onPressed: () {
-            context.pop();
-            context.push('/cabinet');
+            // FIX 2: Correct Navigation Logic
+            context.pop(); // 1. Close the bottom sheet
+            context.go('/cabinet'); // 2. Switch tabs to Cabinet
           },
-          child: const Text('Add Container'),
+          child: const Text('Add Container', style: TextStyle(fontSize: 16)),
         ),
+        const SizedBox(height: 20),
       ],
     );
   }
@@ -369,6 +379,7 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
         children: ['water', 'tea', 'coffee', 'juice', 'soda']
             .map(
               (type) => ListTile(
+                leading: const Icon(Icons.local_drink),
                 title: Text(type.toUpperCase()),
                 onTap: () {
                   setState(() => _selectedDrinkType = type);
