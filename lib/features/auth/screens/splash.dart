@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:timezone/data/latest.dart' as tz; // REQUIRED: For Timezones
 
 // --- SERVICES ---
@@ -24,11 +25,9 @@ class _SplashScreenState extends State<SplashScreen> {
     _bootstrapApp();
   }
 
-  /// Runs all the heavy startup logic
   Future<void> _bootstrapApp() async {
     print('🚀 SPLASH: Starting App Initialization...');
 
-    // 1. DATABASE
     print('🗄️ SPLASH: Initializing Database...');
     await DatabaseService().initialize(
       boxes: [
@@ -40,37 +39,24 @@ class _SplashScreenState extends State<SplashScreen> {
       ],
     );
 
-    // 2. TIMEZONES (CRITICAL FIX)
-    // Without this, the NotificationService will crash when scheduling
     print('🌍 SPLASH: Initializing Timezones...');
     tz.initializeTimeZones();
 
-    // 3. NOTIFICATION ENGINE
     print('🔔 SPLASH: Initializing Notification Engine...');
     await AndroidNotificationEngine().initialize();
     await AndroidNotificationEngine().requestPermissionsAndSchedule();
 
-    // // 4. NOTIFICATION LOGIC (CRITICAL FIX)
-    // // A. Seed Data: Ensures we have default settings if this is the first run
-    // await NotificationService().initializeDefaultData();
-
-    // // B. Sync: This checks the "4-Day Rule" and extends alarms if needed
-    // print('🔄 SPLASH: Syncing Notification Schedule...');
-    // await NotificationService().sync(hardSync: true);
-    // print('✅ SPLASH: Initialization Complete.');
-    // 4. BACKGROUND SERVER WARM-UP (The "Ping")
-    // Note: We do NOT use 'await' here.
-    // This allows the app to move to the Dashboard while the server wakes up.
     print('📡 SPLASH: Firing background server ping...');
     ApiService().checkServerHealth().then((isAlive) {
-      if (isAlive) {
-        print('🟢 SPLASH: Server is awake and ready.');
-      }
+      if (isAlive) print('🟢 SPLASH: Server is awake and ready.');
     });
 
-    // 5. TELL THE ROUTER WE ARE DONE
+    print('✅ SPLASH: Initialization Complete.');
+
+    // Unlock the router gate then navigate — auth redirect handles the rest
     if (mounted) {
       widget.onInitialized();
+      context.go('/'); // ← This is the fix
     }
   }
 

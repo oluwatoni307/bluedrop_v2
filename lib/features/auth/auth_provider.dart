@@ -1,4 +1,5 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import '../../router.dart';
 import '../../services/auth_service.dart';
 import '../../services/database_service.dart';
 import 'auth_model.dart';
@@ -44,21 +45,22 @@ class Auth extends _$Auth {
 
   @override
   Future<AuthState> build() async {
-    // 1. Establish the initial loading state.
-    state = AsyncValue.data(AuthState(isLoading: true));
+    // ✅ FIX: Wait for the app (and database) to be fully initialized
+    // before we attempt to read from it. This prevents a race condition
+    // where authProvider tries to load the profile before Hive is ready.
+    final isAppReady = ref.watch(appStartupProvider);
+    if (!isAppReady) {
+      return AuthState(isAuthenticated: false);
+    }
 
-    // 2. Verify local authentication status.
     if (_authService.isLoggedIn) {
-      // 3. Load the user profile exclusively from the local database.
       final profile = await _loadProfile();
-
-      // 4. Return the authenticated state immediately to trigger routing.
       return AuthState(isAuthenticated: true, profile: profile);
     }
 
-    // 5. Return the unauthenticated state if no local session exists.
     return AuthState(isAuthenticated: false);
   }
+
   // ===========================================================================
   // 🔐 AUTHENTICATION METHODS
   // ===========================================================================
@@ -76,10 +78,7 @@ class Auth extends _$Auth {
 
     try {
       await _authService.signIn(email.trim(), password);
-
-      // Sync cloud data to local Hive
       await _databaseService.syncAllFromCloud();
-
       final profile = await _loadProfile();
       state = AsyncValue.data(
         state.value!.copyWith(
@@ -120,16 +119,14 @@ class Auth extends _$Auth {
 
     try {
       await _authService.register(email.trim(), password);
-
-      // Initialize new profile with flags set to FALSE
       await _databaseService.saveProfile({
         'name': name.trim(),
         'email': email.trim(),
         'createdAt': DateTime.now().toIso8601String(),
-        'setupCompleted': false, // Needs Setup
-        'onboardingCompleted': false, // Needs Onboarding
+        'setupCompleted': false,
+        'onboardingCompleted': false,
         'healthConditions': <String>[],
-        'climate': 'moderate', // Default climate
+        'climate': 'moderate',
       });
 
       final profile = await _loadProfile();
@@ -190,7 +187,6 @@ class Auth extends _$Auth {
   // 🚀 ONBOARDING & SETUP METHODS
   // ===========================================================================
 
-  /// Mark onboarding as complete (Called when user clicks "Get Started")
   Future<bool> completeOnboarding() async {
     state = AsyncValue.data(state.value!.copyWith(isLoading: true));
     try {
@@ -198,7 +194,6 @@ class Auth extends _$Auth {
         'onboardingCompleted': true,
         'updatedAt': DateTime.now().toIso8601String(),
       });
-
       final profile = await _loadProfile();
       state = AsyncValue.data(
         state.value!.copyWith(profile: profile, isLoading: false),
@@ -215,12 +210,11 @@ class Auth extends _$Auth {
     }
   }
 
-  /// Complete profile setup with Climate & Health data
   Future<bool> completeProfileSetup({
     required double weight,
     required String activityLevel,
     required List<String> healthConditions,
-    required String climate, // <--- New Param
+    required String climate,
   }) async {
     state = AsyncValue.data(state.value!.clearError());
 
@@ -234,7 +228,6 @@ class Auth extends _$Auth {
     state = AsyncValue.data(state.value!.copyWith(isLoading: true));
 
     try {
-      // Calculate Goal
       final dailyGoal = calculateDailyGoal(
         weight: weight,
         activityLevel: activityLevel,
@@ -242,12 +235,11 @@ class Auth extends _$Auth {
         climate: climate,
       );
 
-      // Update Database
       await _databaseService.updateProfile({
         'weight': weight,
         'activityLevel': activityLevel,
         'healthConditions': healthConditions,
-        'climate': climate, // Save climate preference
+        'climate': climate,
         'dailyGoal': dailyGoal,
         'setupCompleted': true,
         'updatedAt': DateTime.now().toIso8601String(),
@@ -269,7 +261,6 @@ class Auth extends _$Auth {
     }
   }
 
-  /// Recalculate goal (e.g., after editing profile)
   Future<bool> recalculateDailyGoal() async {
     final profile = state.value?.profile;
     if (profile == null ||
@@ -284,7 +275,6 @@ class Auth extends _$Auth {
     state = AsyncValue.data(state.value!.copyWith(isLoading: true));
 
     try {
-      // Fetch fresh profile to get saved climate
       final profileMap = await _databaseService.getProfile();
       final climate = profileMap?['climate'] ?? 'moderate';
 
@@ -314,7 +304,7 @@ class Auth extends _$Auth {
   }
 
   // ===========================================================================
-  // 🧠 CALCULATION LOGIC (3-State Climate + Medical)
+  // 🧠 CALCULATION LOGIC
   // ===========================================================================
 
   int calculateDailyGoal({
@@ -323,38 +313,31 @@ class Auth extends _$Auth {
     required List<String> healthConditions,
     required String climate,
   }) {
-    // 1. Base Calculation (35ml per kg)
     double goal = weight * 35;
 
-    // 2. Activity Multiplier
     if (activityLevel == 'high') {
       goal *= 1.5;
-    } else if (activityLevel == 'moderate')
+    } else if (activityLevel == 'moderate') {
       goal *= 1.2;
+    }
 
-    // 3. Climate Adjustment
     switch (climate) {
       case 'hot':
-        goal += 500; // Sweat loss
+        goal += 500;
         break;
       case 'cold':
-        goal += 300; // Respiratory loss & Cold-induced diuresis
+        goal += 300;
         break;
       default:
-        break; // Moderate = no change
+        break;
     }
 
-    // 4. Medical Safety Adjustments (Prioritized)
     if (healthConditions.contains('kidney')) {
-      // PRIORITY 1: Safety (Reduce goal)
       goal *= 0.85;
     } else if (healthConditions.contains('pregnant')) {
-      // PRIORITY 2: Growth (Increase goal)
       goal += 350;
     }
-    // Diabetic logic is neutral (optimal standard hydration)
 
-    // 5. Limits & Rounding (Nearest 50ml)
     if (goal < 1500) goal = 1500;
     if (goal > 5000) goal = 5000;
 
@@ -362,15 +345,12 @@ class Auth extends _$Auth {
   }
 
   // ===========================================================================
-  // 🛠️ PRIVATE HELPERS & VALIDATORS
+  // 🛠️ PRIVATE HELPERS
   // ===========================================================================
 
   Future<UserProfile> _loadProfile() async {
     try {
       final profileMap = await _databaseService.getProfile();
-
-      // ✅ FIX 2: Check for null explicitly instead of using '!'
-      // This prevents "Null check operator" crash on first run
       if (profileMap == null) {
         return UserProfile(
           name: '',
@@ -378,10 +358,8 @@ class Auth extends _$Auth {
           createdAt: DateTime.now().toIso8601String(),
         );
       }
-
       return UserProfile.fromJson(profileMap);
     } catch (e) {
-      // Fallback
       return UserProfile(
         name: '',
         email: _authService.userEmail ?? '',
@@ -435,9 +413,8 @@ class Auth extends _$Auth {
     String confirm,
   ) {
     if (name.trim().isEmpty) return 'Name is required';
-    if (email.trim().isEmpty || !email.contains('@')) {
+    if (email.trim().isEmpty || !email.contains('@'))
       return 'Valid email required';
-    }
     if (password.length < 6) return 'Min 6 characters required';
     if (password != confirm) return 'Passwords do not match';
     return null;
