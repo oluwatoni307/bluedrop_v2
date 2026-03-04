@@ -19,12 +19,18 @@ class ChartDataPoint {
   });
 }
 
+// lib/features/analytics/models/analytics_model.dart
+
 class AnalyticsSummary {
-  final double totalVolume; // Total ml consumed in period
-  final double dailyAverage; // Average ml per day
-  final double completionRate; // 0.0 to 1.0 (Percentage of days goal met)
-  final bool trendUp; // True if volume > previous period
-  final double trendPercent; // e.g., 15.0 for 15%
+  final double totalVolume;
+  final double dailyAverage;
+  final double completionRate;
+  final bool trendUp;
+  final double trendPercent;
+  // NEW FIELDS
+  final int currentStreak;
+  final String? streakMilestone; // e.g., "7 Days"
+  final String? wittyPhrase;
 
   const AnalyticsSummary({
     this.totalVolume = 0,
@@ -32,6 +38,9 @@ class AnalyticsSummary {
     this.completionRate = 0,
     this.trendUp = true,
     this.trendPercent = 0,
+    this.currentStreak = 0,
+    this.streakMilestone,
+    this.wittyPhrase,
   });
 }
 

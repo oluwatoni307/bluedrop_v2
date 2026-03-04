@@ -45,14 +45,19 @@ class Analytics extends _$Analytics {
     try {
       final db = DatabaseService();
 
-      // Fetch Goal (Default: 2500)
+      // 1. Fetch Goal (Default: 2500)
       final profile = await db.getProfile();
       final goal = (profile?['dailyGoal'] as num?)?.toInt() ?? 2500;
 
-      // Calculate Dates
+      // 2. Calculate Dates for the Charts
       final (start, end, prevStart, prevEnd) = _calculateRanges();
 
-      // Parallel Fetch (Current + Previous Period for trends)
+      // 3. Define Streak Buffer (Fetch last 366 days to check up to 1-year streak)
+      final streakThreshold = DateTime.now().subtract(
+        const Duration(days: 366),
+      );
+
+      // 4. Parallel Fetch: Current, Previous, and Streak data
       final results = await Future.wait([
         db.queryCollection(
           'waterLogs',
@@ -64,12 +69,14 @@ class Analytics extends _$Analytics {
           startDate: prevStart,
           endDate: prevEnd.add(const Duration(days: 1)),
         ),
+        db.queryCollection('waterLogs', startDate: streakThreshold),
       ]);
 
       final currentLogs = results[0].map((e) => WaterLog.fromJson(e)).toList();
       final prevLogs = results[1].map((e) => WaterLog.fromJson(e)).toList();
+      final streakLogs = results[2].map((e) => WaterLog.fromJson(e)).toList();
 
-      // 1. Generate Chart Data
+      // 5. Generate Chart Data
       List<ChartDataPoint> chartData;
       if (state.period == TimePeriod.year) {
         chartData = AnalyticsCalculator.generateMonthlyPoints(
@@ -86,25 +93,28 @@ class Analytics extends _$Analytics {
         );
       }
 
-      // 2. Generate KPIs
+      // 6. Generate KPIs
       final currVol = currentLogs.fold(0, (sum, e) => sum + e.amount);
       final prevVol = prevLogs.fold(0, (sum, e) => sum + e.amount);
 
-      // Daily Average
       final days = end.difference(start).inDays + 1;
       final dailyAvg = days > 0 ? currVol / days : 0.0;
 
-      // Completion Rate
       final successfulDays = chartData.where((p) => p.isMet).length;
       final rate = chartData.isNotEmpty
           ? successfulDays / chartData.length
           : 0.0;
 
-      // Trend Percentage
       double trendPct = 0;
       if (prevVol > 0) {
         trendPct = ((currVol - prevVol) / prevVol).abs() * 100;
       }
+
+      // 7. Calculate Streak & Badge
+      final (streak, milestone, phrase) = AnalyticsCalculator.calculateStreak(
+        streakLogs,
+        goal,
+      );
 
       state = state.copyWith(
         isLoading: false,
@@ -115,6 +125,9 @@ class Analytics extends _$Analytics {
           completionRate: rate,
           trendUp: currVol >= prevVol,
           trendPercent: trendPct,
+          currentStreak: streak,
+          streakMilestone: milestone,
+          wittyPhrase: phrase,
         ),
       );
     } catch (e) {

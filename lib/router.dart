@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'app_shell.dart';
 import 'features/auth/screens/forgot_password_screen.dart';
 import 'features/auth/screens/login_screen.dart';
+import 'features/auth/screens/newpassword.dart';
 import 'features/auth/screens/onboarding_screen.dart';
 import 'features/auth/screens/profile_screen.dart';
 import 'features/auth/screens/signup_screen.dart';
@@ -174,6 +175,25 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
 
       // --- INDEPENDENT ROUTES ---
+      GoRoute(
+        path: '/reset-password',
+        builder: (context, state) {
+          // Extract the Firebase verification code from the query parameters
+          final code = state.uri.queryParameters['oobCode'];
+
+          // Handle invalid or missing codes
+          if (code == null || code.isEmpty) {
+            return const Scaffold(
+              body: Center(
+                child: Text('Error: Invalid or missing reset code.'),
+              ),
+            );
+          }
+
+          // Route to the password entry screen
+          return NewPasswordScreen(oobCode: code);
+        },
+      ),
       GoRoute(
         path: '/edit-profile',
         builder: (context, state) => const EditProfileScreen(),

@@ -62,6 +62,70 @@ class AnalyticsCalculator {
     return points;
   }
 
+  // lib/features/analytics/logic/analytics_calculator.dart
+
+  static (int, String?, String?) calculateStreak(
+    List<WaterLog> allLogs,
+    int dailyGoal,
+  ) {
+    if (allLogs.isEmpty) return (0, null, null);
+
+    final Map<String, int> dailyTotals = {};
+    for (var log in allLogs) {
+      final key = DateFormat('yyyy-MM-dd').format(log.timestamp);
+      dailyTotals[key] = (dailyTotals[key] ?? 0) + log.amount;
+    }
+
+    int streak = 0;
+    DateTime checkDate = normalizeDate(DateTime.now());
+
+    // Check today first: if met, count it. If not met, don't break yet (day isn't over).
+    final todayKey = DateFormat('yyyy-MM-dd').format(checkDate);
+    if ((dailyTotals[todayKey] ?? 0) >= dailyGoal) {
+      streak++;
+    }
+
+    // Now walk backward from yesterday
+    checkDate = checkDate.subtract(const Duration(days: 1));
+    while (true) {
+      final key = DateFormat('yyyy-MM-dd').format(checkDate);
+      final amount = dailyTotals[key] ?? 0;
+
+      if (amount >= dailyGoal) {
+        streak++;
+        checkDate = checkDate.subtract(const Duration(days: 1));
+      } else {
+        break; // Streak broken
+      }
+    }
+
+    // Determine Milestone & Phrase
+    String? milestone;
+    String? phrase;
+
+    if (streak >= 365) {
+      milestone = "1 Year";
+      phrase = "365 days. You are 70% water and 30% absolute legend.";
+    } else if (streak >= 180) {
+      milestone = "6 Months";
+      phrase = "Half a year! You're cooler than a polar bear's toenails.";
+    } else if (streak >= 30) {
+      milestone = "1 Month";
+      phrase = "A whole month? You've officially conquered the Seven Seas.";
+    } else if (streak >= 14) {
+      milestone = "2 Weeks";
+      phrase = "14 days! You're glowing so hard you're a safety hazard.";
+    } else if (streak >= 10) {
+      milestone = "10 Days";
+      phrase = "Double digits! Your cells are throwing a pool party.";
+    } else if (streak >= 7) {
+      milestone = "7 Days";
+      phrase = "A week of wetness! You're basically a professional fish now.";
+    }
+
+    return (streak, milestone, phrase);
+  }
+
   // 3. MONTHLY AGGREGATOR (With "Current Month" Fix)
   static List<ChartDataPoint> generateMonthlyPoints({
     required List<WaterLog> logs,

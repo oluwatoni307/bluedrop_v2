@@ -15,6 +15,10 @@ class CustomTextField extends StatelessWidget {
   final List<TextInputFormatter>? inputFormatters;
   final void Function(String)? onChanged;
 
+  // ADDED: Optional validator and obscureText properties
+  final String? Function(String?)? validator;
+  final bool obscureText;
+
   const CustomTextField({
     super.key,
     required this.label,
@@ -27,6 +31,8 @@ class CustomTextField extends StatelessWidget {
     this.enabled = true,
     this.inputFormatters,
     this.onChanged,
+    this.validator,
+    this.obscureText = false,
   });
 
   @override
@@ -43,13 +49,16 @@ class CustomTextField extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        TextField(
+        // CHANGED: TextField to TextFormField
+        TextFormField(
           controller: controller,
           keyboardType: keyboardType,
           maxLines: maxLines,
           enabled: enabled,
           inputFormatters: inputFormatters,
           onChanged: onChanged,
+          validator: validator,
+          obscureText: obscureText,
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
@@ -97,6 +106,9 @@ class PasswordField extends StatefulWidget {
   final String? errorText;
   final void Function(String)? onChanged;
 
+  // ADDED: Optional validator property
+  final String? Function(String?)? validator;
+
   const PasswordField({
     super.key,
     required this.label,
@@ -104,6 +116,7 @@ class PasswordField extends StatefulWidget {
     required this.controller,
     this.errorText,
     this.onChanged,
+    this.validator,
   });
 
   @override
@@ -127,10 +140,12 @@ class _PasswordFieldState extends State<PasswordField> {
           ),
         ),
         const SizedBox(height: 8),
-        TextField(
+        // CHANGED: TextField to TextFormField
+        TextFormField(
           controller: widget.controller,
           obscureText: _obscureText,
           onChanged: widget.onChanged,
+          validator: widget.validator,
           decoration: InputDecoration(
             hintText: widget.hint ?? 'Enter ${widget.label.toLowerCase()}',
             hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
@@ -182,6 +197,8 @@ class _PasswordFieldState extends State<PasswordField> {
     );
   }
 }
+
+// ... [The rest of your widgets (AuthButton, AuthTextButton, ActivitySelector, HealthConditionCheckbox, LoadingOverlay) remain entirely unchanged below this point] ...
 
 /// Primary action button (Login, Sign Up, etc.)
 class AuthButton extends StatelessWidget {
@@ -271,7 +288,6 @@ class AuthTextButton extends StatelessWidget {
 }
 
 /// Activity level selector (Low/Moderate/High)
-/// Note: Multipliers are hidden from user, used internally for calculations
 class ActivitySelector extends StatelessWidget {
   final String selectedActivity;
   final ValueChanged<String> onChanged;

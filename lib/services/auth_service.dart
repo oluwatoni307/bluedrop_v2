@@ -146,6 +146,14 @@ class AuthService {
     }
   }
 
+  /// Verifies the code from the email link and updates the password.
+  Future<void> confirmPasswordReset({
+    required String code,
+    required String newPassword,
+  }) async {
+    await _auth.confirmPasswordReset(code: code, newPassword: newPassword);
+  }
+
   /// Update user display name
   ///
   /// Example:

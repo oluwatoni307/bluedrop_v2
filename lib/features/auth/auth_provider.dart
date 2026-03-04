@@ -183,6 +183,38 @@ class Auth extends _$Auth {
     }
   }
 
+  /// Submits the reset code and the new password to the service layer.
+  /// Returns [true] if the operation is successful, or [false] if an error occurs.
+  Future<bool> confirmPasswordReset({
+    required String code,
+    required String newPassword,
+  }) async {
+    // 1. Clear previous errors and set the state to loading.
+    state = AsyncValue.data(state.value!.clearError());
+    state = AsyncValue.data(state.value!.copyWith(isLoading: true));
+
+    try {
+      // 2. Await the service layer execution.
+      await _authService.confirmPasswordReset(
+        code: code,
+        newPassword: newPassword,
+      );
+
+      // 3. Upon success, remove the loading state.
+      state = AsyncValue.data(state.value!.copyWith(isLoading: false));
+      return true;
+    } catch (e) {
+      // 4. Upon failure, register the error and remove the loading state.
+      state = AsyncValue.data(
+        state.value!.copyWith(
+          isLoading: false,
+          error: _mapAuthError(e), // Utilizes your existing error mapping logic
+        ),
+      );
+      return false;
+    }
+  }
+
   // ===========================================================================
   // 🚀 ONBOARDING & SETUP METHODS
   // ===========================================================================
