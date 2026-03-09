@@ -59,7 +59,7 @@ class AnalyticsScreen extends ConsumerWidget {
               const SizedBox(height: 24),
 
               // 2. STREAK BADGE (Shows up if a milestone is reached)
-              if (!state.isLoading && state.summary.streakMilestone != null)
+              if (state.summary.currentStreak > 0)
                 _StreakBadge(
                   milestone: state.summary.streakMilestone!,
                   phrase: state.summary.wittyPhrase!,

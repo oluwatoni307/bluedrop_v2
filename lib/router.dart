@@ -176,12 +176,10 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // --- INDEPENDENT ROUTES ---
       GoRoute(
-        path: '/reset-password',
+        path: '/__/auth/action',
         builder: (context, state) {
-          // Extract the Firebase verification code from the query parameters
           final code = state.uri.queryParameters['oobCode'];
 
-          // Handle invalid or missing codes
           if (code == null || code.isEmpty) {
             return const Scaffold(
               body: Center(
@@ -190,7 +188,6 @@ final routerProvider = Provider<GoRouter>((ref) {
             );
           }
 
-          // Route to the password entry screen
           return NewPasswordScreen(oobCode: code);
         },
       ),

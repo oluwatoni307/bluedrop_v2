@@ -121,6 +121,12 @@ class AnalyticsCalculator {
     } else if (streak >= 7) {
       milestone = "7 Days";
       phrase = "A week of wetness! You're basically a professional fish now.";
+    } else if (streak >= 3) {
+      milestone = "3 Days";
+      phrase = "Consistency is key! You're building a great habit.";
+    } else if (streak >= 1) {
+      milestone = "Active Streak";
+      phrase = "You're on a roll! Keep it up for a bigger milestone.";
     }
 
     return (streak, milestone, phrase);

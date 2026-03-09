@@ -5,7 +5,7 @@ import '../../data/challenges_repository.dart';
 
 class ChallengeDetailsPage extends StatefulWidget {
   final Challenge challenge;
-  final int currentWaterLog; // <--- RIPPLE #1: Added this parameter
+  final int currentWaterLog; // Keeps the parameter you added
 
   const ChallengeDetailsPage({
     super.key,
@@ -21,7 +21,6 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage> {
   final ChallengesRepository _repo = ChallengesRepository();
   bool _isLoading = false;
 
-  // ... [Keep _handleJoin and _handleLeave exactly the same as before] ...
   Future<void> _handleJoin() async {
     setState(() => _isLoading = true);
     try {
@@ -44,7 +43,7 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage> {
   }
 
   Future<void> _handleLeave() async {
-    // ... [Same confirmation logic] ...
+    // You can add a confirmation dialog here if you like
     setState(() => _isLoading = true);
     await _repo.leaveChallenge(widget.challenge);
     if (mounted) Navigator.pop(context, true);
@@ -58,8 +57,7 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage> {
       appBar: AppBar(title: const Text("Challenge Details")),
       body: Column(
         children: [
-          // 1. THE PERFORMANCE CARD (New Feature)
-          // Only show this if the user has actually joined the challenge
+          // 1. THE PERFORMANCE CARD
           if (isJoined) _buildPerformanceHeader(widget.challenge),
 
           // 2. The Markdown Content
@@ -148,21 +146,23 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage> {
   }
 
   // ============================================
-  // NEW: PERFORMANCE HEADER WIDGET
+  // REBUILT: PERFORMANCE HEADER WIDGET
   // ============================================
   Widget _buildPerformanceHeader(Challenge challenge) {
-    // 1. Calculate Timeline Progress (Time Elapsed / Total Duration)
-    // We use the helper method from your Model
-    final double progressValue = challenge.getTimelineProgress();
-
-    // Calculate precise days for the text
+    // 1. Calculate Timeline (Time Elapsed)
     final int daysElapsed =
         DateTime.now()
             .difference(challenge.startDate ?? DateTime.now())
             .inDays +
         1;
-    // Cap it so it doesn't say "Day 8 of 7" if they open it late
     final int currentDay = daysElapsed.clamp(1, challenge.durationDays);
+
+    // 2. Calculate Completion (Actual Effort)
+    final int completedCount = challenge.completedDates.length;
+
+    // The progress bar reflects COMPLETION vs TOTAL DURATION
+    final double completionProgress = (completedCount / challenge.durationDays)
+        .clamp(0.0, 1.0);
 
     final isWater = challenge.type == ChallengeType.waterMain;
     final primaryColor = isWater ? Colors.blue : Colors.purple;
@@ -175,7 +175,7 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage> {
       child: Column(
         children: [
           Text(
-            "CHALLENGE TIMELINE",
+            "YOUR PROGRESS",
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.bold,
@@ -185,26 +185,75 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage> {
           ),
           const SizedBox(height: 16),
 
-          // MAIN TEXT: "Day 3 of 7"
+          // THE STATS ROW: Time Elapsed vs Days Completed
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              Text(
-                "Day $currentDay",
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
+              // Stat 1: The Timeline
+              Column(
+                children: [
+                  Text(
+                    "Day $currentDay",
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                  Text(
+                    "of ${challenge.durationDays}",
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+
+              // Divider
+              Container(height: 40, width: 1, color: Colors.grey.shade300),
+
+              // Stat 2: The Score (Completed Days)
+              Column(
+                children: [
+                  Text(
+                    "$completedCount",
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: primaryColor,
+                    ),
+                  ),
+                  Text(
+                    "Days Done",
+                    style: TextStyle(fontSize: 14, color: primaryColor),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          // PROGRESS BAR: Visualizing actual completion
+          Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(
+                  value: completionProgress,
+                  backgroundColor: Colors.white,
                   color: primaryColor,
+                  minHeight: 16,
                 ),
               ),
-              Text(
-                " / ${challenge.durationDays}",
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey.shade600,
+              Positioned.fill(
+                child: Center(
+                  child: Text(
+                    "${(completionProgress * 100).toInt()}% Completed",
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black54,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -212,28 +261,16 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage> {
 
           const SizedBox(height: 12),
 
-          // PROGRESS BAR: Visualizes the Timeline
-          ClipRRect(
-            borderRadius: BorderRadius.circular(5),
-            child: LinearProgressIndicator(
-              value:
-                  progressValue, // <--- FIXED: Now uses Time Progress, not Volume
-              backgroundColor: Colors.white,
-              color: primaryColor,
-              minHeight: 12,
-            ),
-          ),
-
-          const SizedBox(height: 8),
-
           // SUBTEXT: Context specific info
           Text(
             isWater
                 ? "Keep hitting your daily ${challenge.targetVolume}ml target!"
-                : "Keep your streak alive!",
+                : (challenge.isHabitDoneToday
+                      ? "Great job today! 🎉"
+                      : "Don't forget to check in today!"),
             style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade600,
+              fontSize: 13,
+              color: Colors.grey.shade700,
               fontStyle: FontStyle.italic,
             ),
           ),
