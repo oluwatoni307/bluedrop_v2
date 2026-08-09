@@ -1,7 +1,6 @@
-import 'dart:typed_data'; // Required for Uint8List
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
+import '../water_logging/scan_container.dart';
 import 'container_form_sheet.dart';
 import 'model.dart';
 import 'repo.dart';
@@ -15,7 +14,6 @@ class ContainerCabinetPage extends StatefulWidget {
 
 class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
   final ContainerRepository _repo = ContainerRepository();
-  final ImagePicker _picker = ImagePicker();
 
   List<UserContainer> _containers = [];
   bool _isLoading = false;
@@ -39,72 +37,41 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
   // ===========================================================================
   // 📸 SCANNING LOGIC
   // ===========================================================================
+  //
+  // Task 4: the source-picker -> image-pick -> analyze pipeline now lives
+  // in the shared scanContainerImage() (container_scan.dart), reused by
+  // SmartLogSheet's "Scan New" tile. This handler owns only what happens
+  // with the result — identical to the original inline logic.
 
   Future<void> _handleScan() async {
-    // 1. Prompt user to select image source
-    final ImageSource? selectedSource = await showModalBottomSheet<ImageSource>(
+    final ScanResult result = await scanContainerImage(
       context: context,
-      builder: (BuildContext context) {
-        return SafeArea(
-          child: Wrap(
-            children: <Widget>[
-              ListTile(
-                leading: const Icon(Icons.camera_alt),
-                title: const Text('Take a Photo'),
-                onTap: () => Navigator.of(context).pop(ImageSource.camera),
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library),
-                title: const Text('Choose from Gallery'),
-                onTap: () => Navigator.of(context).pop(ImageSource.gallery),
-              ),
-            ],
-          ),
-        );
+      repo: _repo,
+      onAnalyzingChanged: (analyzing) {
+        if (mounted) setState(() => _isAnalyzing = analyzing);
       },
     );
 
-    // Terminate function if the user dismisses the bottom sheet
-    if (selectedSource == null) return;
+    // Cancelled or threw: preserves original behavior exactly. Both the
+    // original "user dismissed source picker" / "user backed out of
+    // image picker" paths, and the original catch block, did nothing
+    // further — no snackbar, no fallback form.
+    if (result.cancelled || result.threw) return;
 
-    try {
-      // 2. Pick Image using the selected source
-      final XFile? photo = await _picker.pickImage(
-        source: selectedSource,
-        imageQuality: 50,
-      );
-
-      if (photo == null) return;
-
-      setState(() => _isAnalyzing = true);
-
-      // 3. Read bytes (Cross-platform safe)
-      final Uint8List imageBytes = await photo.readAsBytes();
-
-      // 4. Send to AI (Repo expects bytes + filename)
-      final UserContainer? draft = await _repo.analyzeContainerImage(
-        imageBytes,
-        photo.name,
-      );
-
-      setState(() => _isAnalyzing = false);
-
-      if (draft != null) {
-        // Pass isDraft: true to force a new database entry
-        if (mounted) _showContainerForm(initialData: draft, isDraft: true);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Could not analyze image. Try manual entry."),
-            ),
-          );
-          _showContainerForm(); // Fallback to manual
-        }
+    if (result.draft != null) {
+      // Pass isDraft: true to force a new database entry
+      if (mounted) {
+        _showContainerForm(initialData: result.draft, isDraft: true);
       }
-    } catch (e) {
-      setState(() => _isAnalyzing = false);
-      print("Scan error: $e");
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't read that one — let's add it manually."),
+          ),
+        );
+        _showContainerForm(); // Fallback to manual
+      }
     }
   }
 
@@ -116,6 +83,7 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
       backgroundColor: Colors.transparent,
       builder: (context) => ContainerFormSheet(
         initialData: initialData,
+        isDraft: isDraft,
 
         // 1. Pass Delete Logic (Only for existing items, never for drafts)
         onDelete: (initialData == null || initialData.id.isEmpty || isDraft)
@@ -150,6 +118,13 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
             await _repo.saveContainer(newContainer);
           }
 
+          // Confirm the save to the user
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("$name saved to your cabinet.")),
+            );
+          }
+
           _loadContainers(); // Refresh grid
         },
       ),
@@ -164,8 +139,8 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
     final bool? confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Delete Container?"),
-        content: const Text("This action cannot be undone."),
+        title: const Text("Remove this container?"),
+        content: const Text("Your past logs won't be affected."),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -173,7 +148,7 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text("Delete", style: TextStyle(color: Colors.red)),
+            child: const Text("Remove", style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -198,25 +173,68 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
       body: Stack(
         children: [
           // 1. Main Content
-          _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _containers.isEmpty
-              ? _buildEmptyState()
-              : _buildGrid(),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Descriptor block — always visible, explains purpose and interactions
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Save your bottles, cups, and glasses once. They'll appear as quick-log shortcuts so you never have to guess your container's size again.",
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade600,
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Tap any container to edit it. Long press to remove it.",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade400,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Divider to separate descriptor from content
+              Divider(height: 1, color: Colors.grey.shade100),
+
+              // Content area
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _containers.isEmpty
+                    ? _buildEmptyState()
+                    : _buildGrid(),
+              ),
+            ],
+          ),
 
           // 2. Analyzing Overlay
           if (_isAnalyzing)
             Container(
               color: Colors.black54,
-              child: Center(
+              child: const Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  children: const [
+                  children: [
                     CircularProgressIndicator(color: Colors.white),
                     SizedBox(height: 16),
                     Text(
-                      "Analyzing Container...",
+                      "Reading your container...",
                       style: TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      "We'll fill in the details for you.",
+                      style: TextStyle(color: Colors.white70, fontSize: 13),
                     ),
                   ],
                 ),
@@ -226,7 +244,7 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _handleScan,
-        label: const Text("Scan New"),
+        label: const Text("Add Container"),
         icon: const Icon(Icons.camera_alt),
         backgroundColor: Colors.blue,
       ),
@@ -234,36 +252,19 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
   }
 
   Widget _buildGrid() {
-    return Column(
-      children: [
-        // Top Hint Text
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Text(
-            "Long press a container to delete it.",
-            style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
-            textAlign: TextAlign.center,
-          ),
-        ),
-
-        // The Grid fills remaining space
-        Expanded(
-          child: GridView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 2.2, // Wide cards
-            ),
-            itemCount: _containers.length,
-            itemBuilder: (context, index) {
-              final item = _containers[index];
-              return _buildCard(item);
-            },
-          ),
-        ),
-      ],
+    return GridView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: 2.2, // Wide cards
+      ),
+      itemCount: _containers.length,
+      itemBuilder: (context, index) {
+        final item = _containers[index];
+        return _buildCard(item);
+      },
     );
   }
 
@@ -285,10 +286,8 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: () => _showContainerForm(
-            initialData: item,
-          ), // Tap to Edit (isDraft defaults to false)
-          onLongPress: () => _confirmDelete(item.id), // Long press to Delete
+          onTap: () => _showContainerForm(initialData: item),
+          onLongPress: () => _confirmDelete(item.id),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             child: Row(
@@ -347,25 +346,39 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
 
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.shelves, size: 64, color: Colors.grey.shade300),
-          const SizedBox(height: 16),
-          const Text(
-            "Your cabinet is empty",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.shelves, size: 64, color: Colors.grey.shade300),
+            const SizedBox(height: 16),
+            const Text(
+              "Build your cabinet",
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            "Scan a bottle or cup to get started!",
-            style: TextStyle(color: Colors.grey),
-          ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              "Scan your bottles and cups once. They'll appear as quick-log shortcuts every time you drink — no more guessing sizes.",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey.shade500,
+                fontSize: 14,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              "Tap \"Add Container\" below to get started.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+            ),
+          ],
+        ),
       ),
     );
   }

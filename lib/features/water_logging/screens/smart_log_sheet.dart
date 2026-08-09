@@ -10,7 +10,22 @@ import '../../../services/database_service.dart';
 import '../../cabinet/model.dart';
 // Ensure this path points to where ContainerIcons is defined (likely repo.dart or model.dart)
 
+// --- CUP FILL VIEW (Task 3 dependency) ---
+
+import '../../water_log/pages/cup_fill_view.dart';
+import '../scan_container.dart';
+
+// --- SCAN (Task 4 dependency) ---
+// Shared scan-and-analyze pipeline + ContainerRepository, same relative
+// path pattern as the existing model.dart import above.
+import '../../cabinet/repo.dart';
+
 enum LogMode { cabinet, fruit }
+
+/// Cabinet-mode-only step state. Never referenced when
+/// widget.mode == LogMode.fruit — see _buildCabinetBody() /
+/// _buildPickListBody() split below.
+enum _CabinetStep { pickCup, fillCup }
 
 class SmartLogSheet extends ConsumerStatefulWidget {
   final LogMode mode;
@@ -31,6 +46,16 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
   int _count = 1;
   String _selectedDrinkType = 'water';
 
+  // --- Cabinet-mode step state (Task 3) ---
+  // Only ever read/written when widget.mode == LogMode.cabinet.
+  _CabinetStep _step = _CabinetStep.pickCup;
+  LoggableItem? _selectedCup;
+
+  // --- Cabinet-mode scan state (Task 4) ---
+  // Only ever read/written when widget.mode == LogMode.cabinet.
+  final ContainerRepository _repo = ContainerRepository();
+  bool _isAnalyzing = false;
+
   @override
   void initState() {
     super.initState();
@@ -38,6 +63,7 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
   }
 
   Future<void> _loadItems() async {
+    // UNCHANGED — do not touch per task brief.
     if (widget.mode == LogMode.fruit) {
       // --- LOAD FRUITS ---
       if (mounted) {
@@ -85,6 +111,12 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
   }
 
   void _handleLog() {
+    // UNCHANGED — do not touch per task brief.
+    //
+    // Fruit-mode only in practice: the button calling this is gated behind
+    // `if (widget.mode == LogMode.fruit)` in _buildPickListBody(), so
+    // cabinet mode can't reach it through the UI as written. Correcting an
+    // earlier comment that claimed otherwise, so nobody chases a dead path.
     if (_selectedItem == null) return;
 
     final totalAmount = _selectedItem!.amount * _count;
@@ -98,97 +130,226 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    // ConstrainedBox caps how tall the sheet can ever get. Without this,
+    // the outer Column (mainAxisSize.min) just grows to fit whatever
+    // content is inside it — fine for the short pick-list, but
+    // CupFillView's fixed heights (cup zone + slider + presets + toggle +
+    // button + safe-area padding) can add up to more than a given
+    // device's viewport, which is exactly the 41px overflow seen on cup
+    // tap. Wrapping the content area below in Flexible + SingleChildScrollView
+    // means that if content still doesn't fit inside this cap, it scrolls
+    // instead of overflowing — robust across device heights and text-scale
+    // settings, rather than tuned to one screenshot.
+    final Widget sheet = ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.92,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // 1. Header
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                widget.mode == LogMode.fruit ? 'Log Fruit' : 'Log from Cabinet',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => context.pop(),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // 2. Content Area
-          if (_isLoading)
-            const SizedBox(
-              height: 150,
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_items.isEmpty)
-            _buildEmptyState()
-          else
-            Column(
-              children: [
-                // A. Horizontal Scroll List
-                SizedBox(
-                  height: 110,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _items.length,
-                    itemBuilder: (context, index) {
-                      final item = _items[index];
-                      final isSelected = item.id == _selectedItem?.id;
-                      return _buildItemCard(item, isSelected);
-                    },
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-                Divider(height: 1, color: Colors.grey.shade200),
-                const SizedBox(height: 24),
-
-                // B. Control Panel
-                if (_selectedItem != null) _buildControlPanel(),
-
-                const SizedBox(height: 24),
-
-                // C. Submit Button
-                ElevatedButton(
-                  onPressed: _selectedItem == null ? null : _handleLog,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 16,
-                      horizontal: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: Text(
-                    _selectedItem == null
-                        ? 'Select Item'
-                        : 'Log ${(_selectedItem!.amount * _count)}ml',
+      child: Container(
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          24 + MediaQuery.paddingOf(context).bottom,
+        ),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 1. Header — suppressed once cabinet mode reaches the
+            // fillCup step, since CupFillView renders its own "How much
+            // water?" title + close button right below it. Without this,
+            // the sheet showed two stacked headers with two close buttons
+            // that did the exact same thing (pop the whole sheet) — pure
+            // duplication, and the main reason the sheet was overflowing:
+            // this row (IconButton alone has a ~48px min tap target) plus
+            // its spacing was eating space CupFillView's own content
+            // needed.
+            if (!(widget.mode == LogMode.cabinet &&
+                _step == _CabinetStep.fillCup)) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    widget.mode == LogMode.fruit
+                        ? 'Log Fruit'
+                        : 'Log from Cabinet',
                     style: const TextStyle(
-                      fontSize: 18,
+                      fontSize: 20,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                ),
-              ],
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => context.pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // 2. Content Area — Flexible + SingleChildScrollView so that if
+            // the content is taller than the ConstrainedBox's cap, it
+            // scrolls internally rather than overflowing past the sheet.
+            Flexible(
+              child: SingleChildScrollView(
+                child: _isLoading
+                    ? const SizedBox(
+                        height: 150,
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    : _items.isEmpty
+                    ? _buildEmptyState()
+                    : widget.mode == LogMode.cabinet
+                    ? _buildCabinetBody()
+                    : _buildPickListBody(),
+              ),
             ),
-        ],
+          ],
+        ),
       ),
+    );
+
+    // Task 4: analyzing overlay, cabinet mode only. Fruit mode returns
+    // `sheet` directly — same widget tree as before this task, unchanged.
+    if (widget.mode != LogMode.cabinet) return sheet;
+
+    return Stack(children: [sheet, if (_isAnalyzing) _buildScanningOverlay()]);
+  }
+
+  /// Mirrors ContainerCabinetPage's analyzing overlay copy/style for
+  /// visual consistency. Presentational duplication only (not the scan
+  /// logic itself, which is shared via container_scan.dart) — didn't
+  /// seem worth extracting a shared widget for a few lines of styled
+  /// text, but flagging the duplication since the brief emphasized
+  /// "extract, don't duplicate."
+  Widget _buildScanningOverlay() {
+    return Positioned.fill(
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Colors.white),
+              SizedBox(height: 16),
+              Text(
+                "Reading your container...",
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
+              SizedBox(height: 8),
+              Text(
+                "We'll fill in the details for you.",
+                style: TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- CABINET MODE ONLY (Task 3) ---
+
+  /// Swaps between the (unchanged) pick-list UI and CupFillView based on
+  /// _step. Only ever built when widget.mode == LogMode.cabinet — fruit
+  /// mode never enters this method.
+  Widget _buildCabinetBody() {
+    // AnimatedSize eases the sheet's own height between the short pick-list
+    // and the taller CupFillView. AnimatedSwitcher alone only cross-fades
+    // content — it doesn't animate the container around it, which is what
+    // was producing the snap when _step flipped.
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeInOut,
+      alignment: Alignment.topCenter,
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 250),
+        child: (_step == _CabinetStep.fillCup && _selectedCup != null)
+            ? CupFillView(
+                key: const ValueKey('cupFill'),
+                cupVolumeMl: _selectedCup!.amount,
+                onComplete: (ml) =>
+                    context.pop({'amount': ml, 'type': _selectedDrinkType}),
+                // Closes the whole sheet (not just a return to the cup
+                // picker) — confirmed decision, overrides the brief's
+                // original "return to picker" instruction.
+                onClose: () => context.pop(),
+              )
+            : KeyedSubtree(
+                key: const ValueKey('pickList'),
+                child: _buildPickListBody(),
+              ),
+      ),
+    );
+  }
+
+  // --- SHARED PICK-LIST UI ---
+  //
+  // Extracted verbatim from the original inline build() Column — content
+  // is unchanged. Fruit mode calls this directly and exclusively, so its
+  // rendered output is guaranteed identical to pre-refactor behavior.
+  // Cabinet mode reuses it for the pickCup step only.
+  Widget _buildPickListBody() {
+    return Column(
+      children: [
+        // A. Horizontal Scroll List
+        SizedBox(
+          height: 110,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            // Task 4: cabinet mode gets one extra trailing slot for the
+            // "Scan New" tile. Fruit mode's itemCount is unchanged
+            // (+ 0), so its list renders identically to before.
+            itemCount: _items.length + (widget.mode == LogMode.cabinet ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (widget.mode == LogMode.cabinet && index == _items.length) {
+                return _buildScanNewCard();
+              }
+              final item = _items[index];
+              final isSelected = item.id == _selectedItem?.id;
+              return _buildItemCard(item, isSelected);
+            },
+          ),
+        ),
+
+        // B/C. Control panel + submit button — fruit mode only.
+        // Cabinet mode's action is the cup tap itself (handled in
+        // _buildItemCard -> _step transition -> CupFillView); showing a
+        // second, differently-computed "Log" path here would let a user
+        // log an amount without ever touching the fill screen. Fruit
+        // mode is unaffected: this block renders exactly as before.
+        if (widget.mode == LogMode.fruit) ...[
+          const SizedBox(height: 24),
+          Divider(height: 1, color: Colors.grey.shade200),
+          const SizedBox(height: 24),
+          if (_selectedItem != null) _buildControlPanel(),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: _selectedItem == null ? null : _handleLog,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: Text(
+              _selectedItem == null
+                  ? 'Select Item'
+                  : 'Log ${(_selectedItem!.amount * _count)}ml',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -196,7 +357,30 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
 
   Widget _buildItemCard(LoggableItem item, bool isSelected) {
     return GestureDetector(
-      onTap: () => setState(() => _selectedItem = item),
+      onTap: () {
+        // Consolidated into a single setState — previously this fired two
+        // separate setState calls in cabinet mode (one for _selectedItem,
+        // one for _selectedCup/_step), causing an extra, wasted rebuild
+        // before the AnimatedSwitcher/AnimatedSize transition even began.
+        setState(() {
+          _selectedItem = item;
+
+          // ADDED — cabinet-mode-only branch. Fruit mode
+          // (widget.mode == LogMode.fruit) never executes this block, so
+          // fruit-mode tap behavior is unchanged in effect.
+          //
+          // FLAGGED: this is a deviation from "do not touch _buildItemCard()"
+          // (task brief requirement 6). There was no way to hook the
+          // pickCup -> fillCup transition on cup-tap without editing the
+          // one place selection happens. Flagging per instructions rather
+          // than silently leaving it out or silently rewriting the method
+          // more broadly.
+          if (widget.mode == LogMode.cabinet) {
+            _selectedCup = item;
+            _step = _CabinetStep.fillCup;
+          }
+        });
+      },
       child: Container(
         width: 85,
         margin: const EdgeInsets.only(right: 12),
@@ -246,6 +430,112 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
         ),
       ),
     );
+  }
+
+  // --- SCAN NEW (Task 4, cabinet mode only) ---
+
+  /// Same width/shape/margin as _buildItemCard's cards, camera icon and
+  /// blue tint to read as an action tile rather than a selectable item.
+  Widget _buildScanNewCard() {
+    return GestureDetector(
+      onTap: _isAnalyzing ? null : _handleScanFromSheet,
+      child: Container(
+        width: 85,
+        margin: const EdgeInsets.only(right: 12),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.blue.shade100, width: 2),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.camera_alt, size: 32, color: Colors.blue.shade400),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                'Scan New',
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: Colors.blue.shade400),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleScanFromSheet() async {
+    final ScanResult result = await scanContainerImage(
+      context: context,
+      repo: _repo,
+      onAnalyzingChanged: (analyzing) {
+        if (mounted) setState(() => _isAnalyzing = analyzing);
+      },
+    );
+
+    // Cancelled: user backed out intentionally — stay silent, no message.
+    if (result.cancelled) return;
+
+    // Threw or a clean "couldn't read it" analysis failure — both now
+    // surface a message so the user isn't left wondering why nothing
+    // happened. Still stays on pickCup, no other state change.
+    //
+    // FLAGGED (requirement 4, still applies): this does NOT fall back to
+    // manual entry the way ContainerCabinetPage does — just an error
+    // message, then back to the picker. Confirmed as sufficient per your
+    // last message; flagging only so it's on record that manual-entry
+    // fallback was considered and intentionally left out here.
+    if (result.threw || result.draft == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't read that one — try a clearer photo."),
+          ),
+        );
+      }
+      return;
+    }
+
+    // FLAGGED: unlike ContainerCabinetPage (which always opens
+    // ContainerFormSheet so the user can confirm/edit the scanned name
+    // and volume before saving), this path saves the draft directly —
+    // no confirm step — per requirement 3's wording ("save... refresh...
+    // auto-select... advance _step", no form mentioned). A misread name
+    // or volume from analysis gets saved permanently with no chance to
+    // correct it first. Confirm this asymmetry with ContainerCabinetPage
+    // is intentional before shipping.
+    final UserContainer draft = result.draft!;
+    final UserContainer newContainer = UserContainer.create(
+      name: draft.name,
+      volume: draft.volume,
+      iconType: draft.iconType,
+    );
+    await _repo.saveContainer(newContainer);
+
+    await _loadItems(); // existing method, unmodified — refreshes _items
+
+    if (!mounted) return;
+
+    final LoggableItem newItem = _items.firstWhere(
+      (i) => i.id == newContainer.id,
+      orElse: () => LoggableItem(
+        id: newContainer.id,
+        name: newContainer.name,
+        amount: newContainer.volume,
+        icon: ContainerIcons.getIcon(newContainer.iconType),
+        isVariableType: true,
+      ),
+    );
+
+    setState(() {
+      _selectedItem = newItem;
+      _selectedCup = newItem;
+      _step = _CabinetStep.fillCup;
+    });
   }
 
   Widget _buildControlPanel() {

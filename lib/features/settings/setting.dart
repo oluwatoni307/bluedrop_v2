@@ -60,19 +60,6 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: 'Update your personal information',
             onTap: () => context.push('/edit-profile'),
           ),
-          const SizedBox(height: 24),
-
-          // Preferences Section
-          _buildSectionHeader('Preferences'),
-          const SizedBox(height: 8),
-          _buildSettingCard(
-            context,
-            icon: Icons.notifications_outlined,
-            title: 'Notifications',
-            subtitle: 'Manage reminder settings',
-            onTap: () => context.push('/setting/notifications'),
-          ),
-
           const SizedBox(height: 32),
 
           // Logout Button

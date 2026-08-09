@@ -3,12 +3,14 @@ import 'model.dart'; // Ensure this points to your UserContainer model
 
 class ContainerFormSheet extends StatefulWidget {
   final UserContainer? initialData; // Null = New Manual Entry
+  final bool isDraft; // True = came from AI scan
   final Function(String name, int volume, String icon) onSave;
-  final VoidCallback? onDelete; // <--- New: Optional Delete Callback
+  final VoidCallback? onDelete;
 
   const ContainerFormSheet({
     super.key,
     this.initialData,
+    this.isDraft = false,
     required this.onSave,
     this.onDelete,
   });
@@ -46,6 +48,23 @@ class _ContainerFormSheetState extends State<ContainerFormSheet> {
     super.dispose();
   }
 
+  // Determine the right title and subtitle for context
+  String get _sheetTitle {
+    if (widget.isDraft) return "Confirm Container";
+    if (widget.initialData != null) return "Edit Container";
+    return "New Container";
+  }
+
+  String? get _sheetSubtitle {
+    if (widget.isDraft) {
+      return "We detected this from your photo — adjust anything that looks off.";
+    }
+    if (widget.initialData == null) {
+      return "Add a container manually. You can always scan one instead.";
+    }
+    return null; // No subtitle needed for plain edits
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -66,10 +85,25 @@ class _ContainerFormSheetState extends State<ContainerFormSheet> {
         children: [
           // Header
           Text(
-            widget.initialData == null ? "Add Container" : "Edit Container",
+            _sheetTitle,
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             textAlign: TextAlign.center,
           ),
+
+          // Contextual subtitle — explains what's happening
+          if (_sheetSubtitle != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              _sheetSubtitle!,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade500,
+                height: 1.4,
+              ),
+            ),
+          ],
+
           const SizedBox(height: 24),
 
           // 1. Icon Selector
@@ -110,7 +144,7 @@ class _ContainerFormSheetState extends State<ContainerFormSheet> {
           TextField(
             controller: _nameController,
             decoration: InputDecoration(
-              labelText: "Container Name",
+              labelText: "Name",
               hintText: "e.g. Red Hydroflask",
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -126,7 +160,7 @@ class _ContainerFormSheetState extends State<ContainerFormSheet> {
             controller: _volumeController,
             keyboardType: TextInputType.number,
             decoration: InputDecoration(
-              labelText: "Capacity (ml)",
+              labelText: "Volume (ml)",
               suffixText: "ml",
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -178,7 +212,7 @@ class _ContainerFormSheetState extends State<ContainerFormSheet> {
                     ),
                   ),
                   child: const Text(
-                    "Save Container",
+                    "Save",
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 16,
