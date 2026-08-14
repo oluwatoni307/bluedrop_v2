@@ -3,20 +3,23 @@ import 'package:flutter/material.dart';
 import '../../../theme.dart';
 
 // =============================================================================
-// PUBLIC CONTRACT — unchanged. SmartLogSheet (Task 3) already integrates
-// against this exact signature; do not change it without updating that call
-// site too.
+// PUBLIC CONTRACT — SmartLogSheet integrates against this signature; do not
+// change it without updating that call site too.
 //
 // CupFillView(
 //   cupVolumeMl: 350,
-//   initialMode: FillMode.left,       // optional, defaults to FillMode.left
-//   onComplete: (ml) { ... },         // called on confirm tap, returns final ml
+//   onComplete: (ml) { ... },         // called on confirm tap — always the
+//                                      // CONSUMED amount (cupVolumeMl - left)
 //   onClose: () { ... },              // called on close tap — closes the
 //                                      // whole sheet, per confirmed decision
 // )
+//
+// CHANGED (this pass): dropped the Left/Drunk mode toggle entirely, per UX
+// review — see note 8 at the bottom of this file for the reasoning. There is
+// no FillMode anymore; _fraction now has one fixed meaning (how much is
+// LEFT in the cup, matching the drag-to-match-your-real-cup gesture), and
+// both left/consumed are always shown together instead of switched.
 // =============================================================================
-
-enum FillMode { left, drunk }
 
 class _PresetDef {
   final String label;
@@ -26,7 +29,6 @@ class _PresetDef {
 
 class CupFillView extends StatefulWidget {
   final int cupVolumeMl;
-  final FillMode initialMode;
   final ValueChanged<int> onComplete;
   final VoidCallback onClose;
 
@@ -35,7 +37,6 @@ class CupFillView extends StatefulWidget {
     required this.cupVolumeMl,
     required this.onComplete,
     required this.onClose,
-    this.initialMode = FillMode.left,
   });
 
   @override
@@ -48,10 +49,13 @@ class _CupFillViewState extends State<CupFillView>
   // STATE
   // ---------------------------------------------------------------------
 
+  /// Fraction of the cup that is currently LEFT (i.e. how full the drawing
+  /// looks) — fixed meaning now that the mode toggle is gone. Drag until
+  /// the drawing matches your real cup; that's the entire interaction.
   double _fraction = 0.5;
-  FillMode _mode = FillMode.left;
 
   static const List<_PresetDef> _presets = [
+    _PresetDef('Empty', 0.0),
     _PresetDef('¼', 0.25),
     _PresetDef('⅓', 1 / 3),
     _PresetDef('⅔', 2 / 3),
@@ -78,7 +82,6 @@ class _CupFillViewState extends State<CupFillView>
   @override
   void initState() {
     super.initState();
-    _mode = widget.initialMode;
     _settleController = AnimationController(vsync: this);
     _waveController = AnimationController(
       vsync: this,
@@ -171,20 +174,11 @@ class _CupFillViewState extends State<CupFillView>
     return (1 - (2 * t - 1).abs()).clamp(0.0, 1.0);
   }
 
-  void _onModeToggled(FillMode mode) {
-    if (mode == _mode) return;
-    setState(() => _mode = mode);
-    // Per spec: toggling never touches the cup fill, only the readout.
-  }
+  int get _leftMl => (widget.cupVolumeMl * _fraction).round();
 
-  int get _resolvedMl {
-    final raw =
-        widget.cupVolumeMl *
-        (_mode == FillMode.drunk ? _fraction : (1 - _fraction));
-    return raw.round();
-  }
+  int get _consumedMl => (widget.cupVolumeMl * (1 - _fraction)).round();
 
-  void _onConfirm() => widget.onComplete(_resolvedMl);
+  void _onConfirm() => widget.onComplete(_consumedMl);
 
   // ---------------------------------------------------------------------
   // BUILD
@@ -192,11 +186,8 @@ class _CupFillViewState extends State<CupFillView>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     const Color indigo = AppTheme.primaryAction;
     const Color outline = Color(0xFFCBD5E1);
-    const Color warmNeutral = AppTheme.surfaceMuted;
     const Color darkText = AppTheme.darkText;
     const Color lightText = AppTheme.lightText;
 
@@ -211,7 +202,7 @@ class _CupFillViewState extends State<CupFillView>
         mainAxisSize: MainAxisSize.min,
         children: [
           _buildHeader(darkText, lightText),
-          const SizedBox(height: 4),
+          const SizedBox(height: 16),
 
           // --- Cup zone ---
           // Was Expanded + LayoutBuilder, sizing off whatever ambient
@@ -245,34 +236,16 @@ class _CupFillViewState extends State<CupFillView>
             ),
           ),
 
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
 
-          Text(
-            '$_resolvedMl ml',
-            style:
-                theme.textTheme.headlineSmall?.copyWith(
-                  color: darkText,
-                  fontWeight: FontWeight.w800,
-                ) ??
-                const TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                  color: darkText,
-                ),
-          ),
+          // --- Readout: both values, always, no mode to misread. ---
+          _buildReadout(indigo, outline, darkText, lightText),
 
           const SizedBox(height: 20),
 
           // --- Preset chips (replaces the old cup-edge tick marks —
           // simpler, more legible, and matches the finalized mockup) ---
           _buildPresetsRow(indigo, outline, darkText),
-
-          const SizedBox(height: 20),
-
-          // --- Mode toggle — TEXT labels, not icons. The original
-          // icon-based toggle (a drop glyph vs a cup glyph) tested as an
-          // unclear signifier; plain text removes the ambiguity. ---
-          _buildModeToggle(indigo, warmNeutral, lightText),
 
           const SizedBox(height: 24),
 
@@ -375,12 +348,15 @@ class _CupFillViewState extends State<CupFillView>
                   ),
                   borderRadius: BorderRadius.circular(AppTheme.radiusM),
                 ),
-                child: Text(
-                  p.label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: isActive ? Colors.white : darkText,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    p.label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: isActive ? Colors.white : darkText,
+                    ),
                   ),
                 ),
               ),
@@ -391,48 +367,44 @@ class _CupFillViewState extends State<CupFillView>
     );
   }
 
-  Widget _buildModeToggle(Color indigo, Color muted, Color lightText) {
-    return Container(
-      decoration: BoxDecoration(
-        color: muted,
-        borderRadius: BorderRadius.circular(99),
-      ),
-      padding: const EdgeInsets.all(4),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _modeButton('Left', FillMode.left, indigo, lightText),
-          _modeButton('Drunk', FillMode.drunk, indigo, lightText),
-        ],
-      ),
+  /// Both values shown together, always — no mode to pick, so there's
+  /// nothing to misread. The divider makes the pairing legible: two
+  /// distinct stats, not one long ambiguous line.
+  Widget _buildReadout(
+    Color indigo,
+    Color outline,
+    Color darkText,
+    Color lightText,
+  ) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildStat(_leftMl, 'left', darkText, lightText),
+        Container(
+          width: 1,
+          height: 32,
+          margin: const EdgeInsets.symmetric(horizontal: 24),
+          color: outline,
+        ),
+        _buildStat(_consumedMl, 'consumed', darkText, lightText),
+      ],
     );
   }
 
-  Widget _modeButton(
-    String label,
-    FillMode mode,
-    Color indigo,
-    Color lightText,
-  ) {
-    final bool selected = _mode == mode;
-    return GestureDetector(
-      onTap: () => _onModeToggled(mode),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? indigo : Colors.transparent,
-          borderRadius: BorderRadius.circular(99),
-        ),
-        child: Text(
-          label,
+  Widget _buildStat(int ml, String label, Color darkText, Color lightText) {
+    return Column(
+      children: [
+        Text(
+          '$ml ml',
           style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: selected ? Colors.white : lightText,
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: darkText,
           ),
         ),
-      ),
+        const SizedBox(height: 2),
+        Text(label, style: TextStyle(fontSize: 12, color: lightText)),
+      ],
     );
   }
 }
@@ -775,3 +747,32 @@ class _CupPainter extends CustomPainter {
 //    started) rather than just skipping the *rebuild* — avoids an
 //    unnecessary repeating animation ticking in the background for users
 //    who've opted out of motion.
+//
+// 8. REDESIGN (this pass): removed the Left/Drunk mode toggle entirely.
+//    Reasoning, in short: a cup-fill drawing has exactly one honest
+//    real-world referent — what's physically in the cup right now — which
+//    is why the old Left mode worked without explanation (drag until the
+//    picture matches your real cup). Drunk mode reused that same gesture
+//    for a quantity a physical cup can't show you (a cumulative, historical
+//    amount), and — this was the sharper finding — Left mode itself had a
+//    live bug: dragging to a full-looking cup reported "0 ml left," exactly
+//    backwards from how anyone reads a full glass on sight. Fix: _fraction
+//    now has one fixed meaning (amount LEFT), the drawing is always a true
+//    physical match, and both left_ml and consumed_ml are shown together
+//    at all times via _buildReadout()/_buildStat() — nothing to toggle,
+//    nothing to misread. onComplete(ml) always passes consumed_ml now
+//    (previously it depended on which mode was active).
+//
+//    Also added an 'Empty' preset (0.0) alongside the existing ¼ ⅓ ⅔ ¾
+//    Full — "I finished the cup" is plausibly the single most common
+//    action here and previously had no one-tap preset, unlike the "Full"
+//    end of the range.
+//
+//    Deliberately NOT added: a whole-cup counter/stepper (fruit mode's
+//    _count pattern) for logging multiple refills in one sitting. Adding
+//    it would force _fraction to mean "consumed" instead of "left" (the
+//    two summed together only make sense if both count the same
+//    direction), which reintroduces the exact drag-to-match-your-real-cup
+//    tradeoff this pass just removed — for a use case (same-sitting
+//    refills) that isn't confirmed common. Revisit only if usage data
+//    says otherwise.

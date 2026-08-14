@@ -10,6 +10,23 @@ class ContainerRepository {
   static const String _collection = 'user_containers';
 
   // ===========================================================================
+  // 0. SERVER WAKEUP
+  // ===========================================================================
+
+  /// Thin wrapper around ApiService.checkServerHealth() so callers in the
+  /// scan flow (container_scan.dart) don't need to import ApiService
+  /// directly — matches how the rest of this repo already brokers between
+  /// UI code and _api/_db.
+  ///
+  /// checkServerHealth() already swallows its own errors and returns a
+  /// bool rather than throwing, so there's nothing to catch here. Callers
+  /// should fire this with `unawaited()` — it's a fire-and-forget warmup
+  /// ping for Render's free-tier cold start, not something to block on.
+  Future<void> pingServerAwake() async {
+    await _api.checkServerHealth();
+  }
+
+  // ===========================================================================
   // 1. SMART ANALYSIS (The Bridge to AI)
   // ===========================================================================
 

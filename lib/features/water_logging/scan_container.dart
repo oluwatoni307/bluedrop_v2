@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -48,6 +49,18 @@ Future<ScanResult> scanContainerImage({
   required ValueChanged<bool> onAnalyzingChanged,
   ImagePicker? picker,
 }) async {
+  // Fire-and-forget wakeup ping — Render's free tier cold-boots after
+  // inactivity, and the actual analyze request (recognizeContainer, over
+  // in ApiService) can fail or eat its retry budget while the server is
+  // spinning up. ContainerRepository.pingServerAwake() wraps the existing
+  // ApiService.checkServerHealth(), which already hits /ping with its own
+  // timeout and swallows its own errors — nothing to catch here, and
+  // nothing to await: firing it now, before the source-picker modal even
+  // opens, means the whole "pick source -> take/select photo -> read
+  // bytes" window becomes free warmup time for the server. Must never
+  // block or otherwise affect the actual scan flow below.
+  unawaited(repo.pingServerAwake());
+
   final ImagePicker imagePicker = picker ?? ImagePicker();
 
   // 1. Prompt user to select image source — unchanged from the original
