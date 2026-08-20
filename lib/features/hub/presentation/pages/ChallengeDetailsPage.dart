@@ -15,6 +15,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:go_router/go_router.dart';
 import '../../data/challenge_model.dart';
 import '../../data/challenges_repository.dart';
 
@@ -90,6 +91,31 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage> {
     setState(() => _isLoading = true);
     await _repo.leaveChallenge(widget.challenge);
     if (mounted) Navigator.pop(context, true);
+  }
+
+  Future<void> _handleMarkTodayDone() async {
+    setState(() => _isLoading = true);
+    try {
+      await _repo.toggleHabitForToday(widget.challenge);
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Couldn't update today's progress.")),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _handleLogWater() async {
+    setState(() => _isLoading = true);
+    try {
+      await context.push('/log');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -354,12 +380,9 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage> {
           child: ElevatedButton(
             onPressed: _isLoading
                 ? null
-                : () {
-                    // Hook this to your daily log / check-in action.
-                    // For water challenges this navigates to the water log entry.
-                    // For habit challenges this calls toggleHabitForToday.
-                    // Wired at the call site — not hardcoded here.
-                  },
+                : isWater
+                ? _handleLogWater
+                : _handleMarkTodayDone,
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blue,
               foregroundColor: Colors.white,

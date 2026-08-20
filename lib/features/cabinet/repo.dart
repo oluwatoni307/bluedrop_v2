@@ -59,6 +59,19 @@ class ContainerRepository {
     }
   }
 
+  /// Estimates the fraction of liquid remaining in a known container.
+  Future<double?> estimateWaterLevel(
+    Uint8List imageBytes,
+    String fileName,
+  ) async {
+    try {
+      return await _api.estimateWaterLevel(imageBytes, fileName);
+    } catch (e) {
+      print("❌ [Repo] Water-level analysis failed: $e");
+      return null;
+    }
+  }
+
   // ===========================================================================
   // 2. DATABASE OPERATIONS (CRUD)
   // ===========================================================================

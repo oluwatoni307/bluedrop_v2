@@ -50,6 +50,7 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
   // Only ever read/written when widget.mode == LogMode.cabinet.
   _CabinetStep _step = _CabinetStep.pickCup;
   LoggableItem? _selectedCup;
+  double _detectedFillFraction = 0.5;
 
   // --- Cabinet-mode scan state (Task 4) ---
   // Only ever read/written when widget.mode == LogMode.cabinet.
@@ -275,6 +276,7 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
             ? CupFillView(
                 key: const ValueKey('cupFill'),
                 cupVolumeMl: _selectedCup!.amount,
+                initialFillFraction: _detectedFillFraction,
                 onComplete: (ml) =>
                     context.pop({'amount': ml, 'type': _selectedDrinkType}),
                 // Closes the whole sheet (not just a return to the cup
@@ -438,7 +440,9 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
   /// blue tint to read as an action tile rather than a selectable item.
   Widget _buildScanNewCard() {
     return GestureDetector(
-      onTap: _isAnalyzing ? null : _handleScanFromSheet,
+      onTap: _isAnalyzing || _selectedItem == null
+          ? null
+          : _handleScanFromSheet,
       child: Container(
         width: 85,
         margin: const EdgeInsets.only(right: 12),
@@ -455,7 +459,7 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Text(
-                'Scan New',
+                'Scan Fill',
                 textAlign: TextAlign.center,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -469,12 +473,15 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
   }
 
   Future<void> _handleScanFromSheet() async {
+    if (_selectedItem == null) return;
+
     final ScanResult result = await scanContainerImage(
       context: context,
       repo: _repo,
       onAnalyzingChanged: (analyzing) {
         if (mounted) setState(() => _isAnalyzing = analyzing);
       },
+      estimateWaterLevel: true,
     );
 
     // Cancelled: user backed out intentionally — stay silent, no message.
@@ -489,7 +496,7 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
     // message, then back to the picker. Confirmed as sufficient per your
     // last message; flagging only so it's on record that manual-entry
     // fallback was considered and intentionally left out here.
-    if (result.threw || result.draft == null) {
+    if (result.threw || result.fillFraction == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -500,40 +507,11 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
       return;
     }
 
-    // FLAGGED: unlike ContainerCabinetPage (which always opens
-    // ContainerFormSheet so the user can confirm/edit the scanned name
-    // and volume before saving), this path saves the draft directly —
-    // no confirm step — per requirement 3's wording ("save... refresh...
-    // auto-select... advance _step", no form mentioned). A misread name
-    // or volume from analysis gets saved permanently with no chance to
-    // correct it first. Confirm this asymmetry with ContainerCabinetPage
-    // is intentional before shipping.
-    final UserContainer draft = result.draft!;
-    final UserContainer newContainer = UserContainer.create(
-      name: draft.name,
-      volume: draft.volume,
-      iconType: draft.iconType,
-    );
-    await _repo.saveContainer(newContainer);
-
-    await _loadItems(); // existing method, unmodified — refreshes _items
-
     if (!mounted) return;
 
-    final LoggableItem newItem = _items.firstWhere(
-      (i) => i.id == newContainer.id,
-      orElse: () => LoggableItem(
-        id: newContainer.id,
-        name: newContainer.name,
-        amount: newContainer.volume,
-        icon: ContainerIcons.getIcon(newContainer.iconType),
-        isVariableType: true,
-      ),
-    );
-
     setState(() {
-      _selectedItem = newItem;
-      _selectedCup = newItem;
+      _detectedFillFraction = result.fillFraction!;
+      _selectedCup = _selectedItem;
       _step = _CabinetStep.fillCup;
     });
   }

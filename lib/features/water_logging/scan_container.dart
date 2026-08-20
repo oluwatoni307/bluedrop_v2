@@ -28,6 +28,9 @@ class ScanResult {
   /// on an exception — see [cancelled] / [threw] to tell those apart.
   final UserContainer? draft;
 
+  /// Normalized fraction of liquid remaining, from 0.0 to 1.0.
+  final double? fillFraction;
+
   /// True if the user backed out of the source picker or the image
   /// picker before an image was ever selected. Not an error; nothing
   /// should change for the caller.
@@ -40,7 +43,12 @@ class ScanResult {
   /// preserve that exact silent behavior.
   final bool threw;
 
-  const ScanResult({this.draft, required this.cancelled, this.threw = false});
+  const ScanResult({
+    this.draft,
+    this.fillFraction,
+    required this.cancelled,
+    this.threw = false,
+  });
 }
 
 Future<ScanResult> scanContainerImage({
@@ -48,6 +56,7 @@ Future<ScanResult> scanContainerImage({
   required ContainerRepository repo,
   required ValueChanged<bool> onAnalyzingChanged,
   ImagePicker? picker,
+  bool estimateWaterLevel = false,
 }) async {
   // Fire-and-forget wakeup ping — Render's free tier cold-boots after
   // inactivity, and the actual analyze request (recognizeContainer, over
@@ -107,15 +116,25 @@ Future<ScanResult> scanContainerImage({
     // 3. Read bytes (cross-platform safe)
     final Uint8List imageBytes = await photo.readAsBytes();
 
-    // 4. Send to AI (repo expects bytes + filename)
-    final UserContainer? draft = await repo.analyzeContainerImage(
-      imageBytes,
-      photo.name,
-    );
+    // 4. Cabinet creation identifies the container; water logging estimates
+    // the current liquid level in an already selected container.
+    final UserContainer? draft;
+    final double? fillFraction;
+    if (estimateWaterLevel) {
+      draft = null;
+      fillFraction = await repo.estimateWaterLevel(imageBytes, photo.name);
+    } else {
+      draft = await repo.analyzeContainerImage(imageBytes, photo.name);
+      fillFraction = null;
+    }
 
     onAnalyzingChanged(false);
 
-    return ScanResult(draft: draft, cancelled: false);
+    return ScanResult(
+      draft: draft,
+      fillFraction: fillFraction,
+      cancelled: false,
+    );
   } catch (e) {
     onAnalyzingChanged(false);
     print("Scan error: $e");

@@ -156,7 +156,7 @@ class _GoalsHubPageState extends State<GoalsHubPage> {
   }
 
   Future<void> _loadWaterLog() async {
-    final logs = await _db.getAllFromCollection('water_logs');
+    final logs = await _db.getAllFromCollection('waterLogs');
     final now = DateTime.now();
 
     final todayLogs = logs.where((l) {

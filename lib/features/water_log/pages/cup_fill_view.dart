@@ -29,12 +29,14 @@ class _PresetDef {
 
 class CupFillView extends StatefulWidget {
   final int cupVolumeMl;
+  final double initialFillFraction;
   final ValueChanged<int> onComplete;
   final VoidCallback onClose;
 
   const CupFillView({
     super.key,
     required this.cupVolumeMl,
+    this.initialFillFraction = 0.5,
     required this.onComplete,
     required this.onClose,
   });
@@ -52,7 +54,7 @@ class _CupFillViewState extends State<CupFillView>
   /// Fraction of the cup that is currently LEFT (i.e. how full the drawing
   /// looks) — fixed meaning now that the mode toggle is gone. Drag until
   /// the drawing matches your real cup; that's the entire interaction.
-  double _fraction = 0.5;
+  late double _fraction;
 
   static const List<_PresetDef> _presets = [
     _PresetDef('Empty', 0.0),
@@ -82,6 +84,7 @@ class _CupFillViewState extends State<CupFillView>
   @override
   void initState() {
     super.initState();
+    _fraction = widget.initialFillFraction.clamp(0.0, 1.0);
     _settleController = AnimationController(vsync: this);
     _waveController = AnimationController(
       vsync: this,

@@ -232,6 +232,54 @@ class ApiService {
   // 5. IMAGE RECOGNITION
   // ---------------------------------------------------------------------------
 
+  /// Estimates how full a container is from an image.
+  ///
+  /// This endpoint is separate from [recognizeContainer], which identifies
+  /// cabinet containers and returns metadata such as name and volume.
+  Future<double?> estimateWaterLevel(
+    Uint8List imageBytes,
+    String fileName,
+  ) async {
+    const String endpoint = '$_baseUrl/water-level';
+    final request = http.MultipartRequest('POST', Uri.parse(endpoint));
+    final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+
+    if (token != null) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'file',
+        imageBytes,
+        filename: fileName,
+        contentType: MediaType('image', 'jpeg'),
+      ),
+    );
+
+    final response = await request.send().timeout(const Duration(seconds: 45));
+    final responseBody = await http.Response.fromStream(response);
+
+    if (response.statusCode != 200) {
+      print(
+        "❌ [ApiService] Water-level error: ${response.statusCode} - ${responseBody.body}",
+      );
+      return null;
+    }
+
+    final decoded = jsonDecode(responseBody.body);
+    final payload = decoded is Map<String, dynamic>
+        ? decoded['analysis'] ?? decoded
+        : decoded;
+    final value = payload is Map<String, dynamic>
+        ? payload['fill_percentage'] ?? payload['fillPercent']
+        : payload;
+    final percentage = value is num ? value.toDouble() : null;
+
+    if (percentage == null) return null;
+    return (percentage / 100).clamp(0.0, 1.0);
+  }
+
   Future<Map<String, dynamic>?> recognizeContainer(
     Uint8List imageBytes,
     String fileName,
