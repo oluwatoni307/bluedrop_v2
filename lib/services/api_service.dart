@@ -322,6 +322,13 @@ class ApiService {
           final decoded = jsonDecode(response.body);
           var analysisData = decoded['analysis'];
 
+          if (analysisData is List && analysisData.isNotEmpty) {
+            final firstPart = analysisData.first;
+            if (firstPart is Map<String, dynamic>) {
+              analysisData = firstPart['text'] ?? firstPart;
+            }
+          }
+
           if (analysisData is String) {
             try {
               final cleanJson = analysisData
