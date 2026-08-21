@@ -406,8 +406,9 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
                 ? Icon(
                     item.icon,
                     size: 32,
-                        color: item.iconColor ??
-                    (isSelected ? Colors.blue : Colors.grey),
+                    color:
+                        item.iconColor ??
+                        (isSelected ? Colors.blue : Colors.grey),
                   )
                 : Text(item.emojiOrIcon, style: const TextStyle(fontSize: 32)),
 
@@ -445,11 +446,9 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
   /// blue tint to read as an action tile rather than a selectable item.
   Widget _buildScanNewCard() {
     return GestureDetector(
-      onTap: _isAnalyzing
-          ? null
-          : _handleScanFromSheet,
+      onTap: _isAnalyzing ? null : _handleScanFromSheet,
       child: Container(
-            width: 120,
+        width: 120,
         margin: const EdgeInsets.only(right: 12),
         decoration: BoxDecoration(
           color: Colors.grey.shade50,
@@ -499,7 +498,9 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
     // message, then back to the picker. Confirmed as sufficient per your
     // last message; flagging only so it's on record that manual-entry
     // fallback was considered and intentionally left out here.
-    if (result.threw || result.fillFraction == null || result.capacity == null) {
+    if (result.threw ||
+        result.fillFraction == null ||
+        result.capacity == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -515,14 +516,16 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
     setState(() {
       _detectedFillFraction = result.fillFraction!;
       _detectedCapacity = result.capacity;
-      _selectedCup = _selectedItem ?? LoggableItem(
-        id: 'scanned-${DateTime.now().microsecondsSinceEpoch}',
-        name: 'Scanned container',
-        amount: result.capacity!,
-        icon: Icons.local_drink,
-        iconColor: ContainerIcons.getColor('bottle'),
-        isVariableType: true,
-      );
+      _selectedCup =
+          _selectedItem ??
+          LoggableItem(
+            id: 'scanned-${DateTime.now().microsecondsSinceEpoch}',
+            name: 'Scanned container',
+            amount: result.capacity!,
+            icon: Icons.local_drink,
+            iconColor: ContainerIcons.getColor('bottle'),
+            isVariableType: true,
+          );
       _step = _CabinetStep.fillCup;
     });
   }

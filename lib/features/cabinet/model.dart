@@ -74,6 +74,5 @@ class ContainerIcons {
 
   static IconData getIcon(String type) => map[type] ?? Icons.local_drink;
 
-  static Color getColor(String type) =>
-      colors[type] ?? const Color(0xFF2F80ED);
+  static Color getColor(String type) => colors[type] ?? const Color(0xFF2F80ED);
 }
