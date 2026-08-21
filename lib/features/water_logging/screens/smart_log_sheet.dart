@@ -51,6 +51,7 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
   _CabinetStep _step = _CabinetStep.pickCup;
   LoggableItem? _selectedCup;
   double _detectedFillFraction = 0.5;
+  int? _detectedCapacity;
 
   // --- Cabinet-mode scan state (Task 4) ---
   // Only ever read/written when widget.mode == LogMode.cabinet.
@@ -96,6 +97,7 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
                 amount: container.volume,
                 // Use the helper from your repo to get the IconData
                 icon: ContainerIcons.getIcon(container.iconType),
+                iconColor: ContainerIcons.getColor(container.iconType),
                 isVariableType: true,
               );
             }).toList();
@@ -202,10 +204,12 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
                         height: 150,
                         child: Center(child: CircularProgressIndicator()),
                       )
+                    : widget.mode == LogMode.cabinet
+                    ? (_items.isEmpty && _step == _CabinetStep.pickCup
+                          ? _buildEmptyState()
+                          : _buildCabinetBody())
                     : _items.isEmpty
                     ? _buildEmptyState()
-                    : widget.mode == LogMode.cabinet
-                    ? _buildCabinetBody()
                     : _buildPickListBody(),
               ),
             ),
@@ -275,7 +279,7 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
         child: (_step == _CabinetStep.fillCup && _selectedCup != null)
             ? CupFillView(
                 key: const ValueKey('cupFill'),
-                cupVolumeMl: _selectedCup!.amount,
+                cupVolumeMl: _detectedCapacity ?? _selectedCup!.amount,
                 initialFillFraction: _detectedFillFraction,
                 onComplete: (ml) =>
                     context.pop({'amount': ml, 'type': _selectedDrinkType}),
@@ -384,7 +388,7 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
         });
       },
       child: Container(
-        width: 85,
+        width: 120,
         margin: const EdgeInsets.only(right: 12),
         decoration: BoxDecoration(
           color: isSelected ? Colors.blue.shade50 : Colors.grey.shade50,
@@ -402,7 +406,8 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
                 ? Icon(
                     item.icon,
                     size: 32,
-                    color: isSelected ? Colors.blue : Colors.grey,
+                        color: item.iconColor ??
+                    (isSelected ? Colors.blue : Colors.grey),
                   )
                 : Text(item.emojiOrIcon, style: const TextStyle(fontSize: 32)),
 
@@ -412,7 +417,7 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
               child: Text(
                 item.name,
                 textAlign: TextAlign.center,
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 12,
@@ -440,11 +445,11 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
   /// blue tint to read as an action tile rather than a selectable item.
   Widget _buildScanNewCard() {
     return GestureDetector(
-      onTap: _isAnalyzing || _selectedItem == null
+      onTap: _isAnalyzing
           ? null
           : _handleScanFromSheet,
       child: Container(
-        width: 85,
+            width: 120,
         margin: const EdgeInsets.only(right: 12),
         decoration: BoxDecoration(
           color: Colors.grey.shade50,
@@ -473,8 +478,6 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
   }
 
   Future<void> _handleScanFromSheet() async {
-    if (_selectedItem == null) return;
-
     final ScanResult result = await scanContainerImage(
       context: context,
       repo: _repo,
@@ -496,7 +499,7 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
     // message, then back to the picker. Confirmed as sufficient per your
     // last message; flagging only so it's on record that manual-entry
     // fallback was considered and intentionally left out here.
-    if (result.threw || result.fillFraction == null) {
+    if (result.threw || result.fillFraction == null || result.capacity == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -511,7 +514,15 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
 
     setState(() {
       _detectedFillFraction = result.fillFraction!;
-      _selectedCup = _selectedItem;
+      _detectedCapacity = result.capacity;
+      _selectedCup = _selectedItem ?? LoggableItem(
+        id: 'scanned-${DateTime.now().microsecondsSinceEpoch}',
+        name: 'Scanned container',
+        amount: result.capacity!,
+        icon: Icons.local_drink,
+        iconColor: ContainerIcons.getColor('bottle'),
+        isVariableType: true,
+      );
       _step = _CabinetStep.fillCup;
     });
   }
@@ -616,6 +627,27 @@ class _SmartLogSheetState extends ConsumerState<SmartLogSheet> {
   }
 
   Widget _buildEmptyState() {
+    if (widget.mode == LogMode.cabinet) {
+      return Column(
+        children: [
+          const SizedBox(height: 20),
+          const Icon(Icons.camera_alt, size: 64, color: Colors.blue),
+          const SizedBox(height: 16),
+          const Text(
+            'Scan a container to log it',
+            style: TextStyle(fontSize: 16, color: Colors.grey),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _isAnalyzing ? null : _handleScanFromSheet,
+            icon: const Icon(Icons.camera_alt),
+            label: const Text('Scan Container'),
+          ),
+          const SizedBox(height: 20),
+        ],
+      );
+    }
+
     return Column(
       children: [
         const SizedBox(height: 20),
@@ -691,6 +723,7 @@ class LoggableItem {
   final String name;
   final int amount;
   final IconData? icon;
+  final Color? iconColor;
   final String? emoji;
   final bool isVariableType;
 
@@ -699,6 +732,7 @@ class LoggableItem {
     required this.name,
     required this.amount,
     this.icon,
+    this.iconColor,
     this.emoji,
     required this.isVariableType,
   });

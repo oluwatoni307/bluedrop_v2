@@ -63,5 +63,17 @@ class ContainerIcons {
     'jug': Icons.kitchen, // Large jug
   };
 
+  static const Map<String, Color> colors = {
+    'bottle': Color(0xFF2F80ED),
+    'bottle_metal': Color(0xFF65758B),
+    'mug': Color(0xFFB5651D),
+    'glass': Color(0xFF00A6A6),
+    'cup': Color(0xFFE09F3E),
+    'jug': Color(0xFF7B61A8),
+  };
+
   static IconData getIcon(String type) => map[type] ?? Icons.local_drink;
+
+  static Color getColor(String type) =>
+      colors[type] ?? const Color(0xFF2F80ED);
 }

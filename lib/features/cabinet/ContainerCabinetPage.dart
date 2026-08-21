@@ -297,13 +297,13 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
+                    color: ContainerIcons.getColor(item.iconType).withAlpha(28),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
                     ContainerIcons.getIcon(item.iconType),
                     size: 18,
-                    color: Colors.blue.shade700,
+                    color: ContainerIcons.getColor(item.iconType),
                   ),
                 ),
 

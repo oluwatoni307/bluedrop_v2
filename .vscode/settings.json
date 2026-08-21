@@ -1,5 +1,8 @@
 {
   "workbench.editor.limit.enabled": true,
   "workbench.editor.limit.perEditorGroup": true,
-  "workbench.editor.limit.value": 4
+  "workbench.editor.limit.value": 4,
+  "chat.tools.terminal.autoApprove": {
+    "dart": true
+  }
 }

@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../cabinet/model.dart';
 import '../cabinet/repo.dart';
+import '../../services/api_service.dart';
 
 /// Shared scan-and-analyze flow, extracted from the original
 /// ContainerCabinetPage._handleScan() (Task 4) so ContainerCabinetPage
@@ -31,6 +32,9 @@ class ScanResult {
   /// Normalized fraction of liquid remaining, from 0.0 to 1.0.
   final double? fillFraction;
 
+  /// Capacity, in millilitres, recognized from the photographed container.
+  final int? capacity;
+
   /// True if the user backed out of the source picker or the image
   /// picker before an image was ever selected. Not an error; nothing
   /// should change for the caller.
@@ -46,6 +50,7 @@ class ScanResult {
   const ScanResult({
     this.draft,
     this.fillFraction,
+    this.capacity,
     required this.cancelled,
     this.threw = false,
   });
@@ -120,12 +125,19 @@ Future<ScanResult> scanContainerImage({
     // the current liquid level in an already selected container.
     final UserContainer? draft;
     final double? fillFraction;
+    final int? capacity;
     if (estimateWaterLevel) {
       draft = null;
-      fillFraction = await repo.estimateWaterLevel(imageBytes, photo.name);
+      final WaterLevelEstimate? estimate = await repo.estimateWaterLevel(
+        imageBytes,
+        photo.name,
+      );
+      fillFraction = estimate?.fillPercentage;
+      capacity = estimate?.capacity;
     } else {
       draft = await repo.analyzeContainerImage(imageBytes, photo.name);
       fillFraction = null;
+      capacity = null;
     }
 
     onAnalyzingChanged(false);
@@ -133,6 +145,7 @@ Future<ScanResult> scanContainerImage({
     return ScanResult(
       draft: draft,
       fillFraction: fillFraction,
+      capacity: capacity,
       cancelled: false,
     );
   } catch (e) {

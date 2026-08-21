@@ -9,6 +9,16 @@ import 'database_service.dart';
 import '../features/hub/data/challenge_model.dart';
 import '../features/hub/data/challenges_repository.dart';
 
+class WaterLevelEstimate {
+  final double fillPercentage;
+  final int capacity;
+
+  const WaterLevelEstimate({
+    required this.fillPercentage,
+    required this.capacity,
+  });
+}
+
 class ApiService {
   // ---------------------------------------------------------------------------
   // CONFIGURATION
@@ -236,7 +246,7 @@ class ApiService {
   ///
   /// This endpoint is separate from [recognizeContainer], which identifies
   /// cabinet containers and returns metadata such as name and volume.
-  Future<double?> estimateWaterLevel(
+  Future<WaterLevelEstimate?> estimateWaterLevel(
     Uint8List imageBytes,
     String fileName,
   ) async {
@@ -271,13 +281,18 @@ class ApiService {
     final payload = decoded is Map<String, dynamic>
         ? decoded['analysis'] ?? decoded
         : decoded;
-    final value = payload is Map<String, dynamic>
-        ? payload['fill_percentage'] ?? payload['fillPercent']
-        : payload;
-    final percentage = value is num ? value.toDouble() : null;
+    if (payload is! Map<String, dynamic>) return null;
 
-    if (percentage == null) return null;
-    return (percentage / 100).clamp(0.0, 1.0);
+    final value = payload['fill_percentage'] ?? payload['fillPercent'];
+    final capacityValue = payload['capacity'];
+    final percentage = value is num ? value.toDouble() : null;
+    final capacity = capacityValue is num ? capacityValue.toInt() : null;
+
+    if (percentage == null || capacity == null || capacity <= 0) return null;
+    return WaterLevelEstimate(
+      fillPercentage: (percentage / 100).clamp(0.0, 1.0),
+      capacity: capacity,
+    );
   }
 
   Future<Map<String, dynamic>?> recognizeContainer(

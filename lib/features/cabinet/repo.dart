@@ -60,7 +60,7 @@ class ContainerRepository {
   }
 
   /// Estimates the fraction of liquid remaining in a known container.
-  Future<double?> estimateWaterLevel(
+  Future<WaterLevelEstimate?> estimateWaterLevel(
     Uint8List imageBytes,
     String fileName,
   ) async {
