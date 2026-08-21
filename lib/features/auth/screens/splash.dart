@@ -44,7 +44,11 @@ class _SplashScreenState extends State<SplashScreen> {
 
     print('🔔 SPLASH: Initializing Notification Engine...');
     await AndroidNotificationEngine().initialize();
-    await AndroidNotificationEngine().requestPermissionsAndSchedule();
+    try {
+      await AndroidNotificationEngine().requestPermissionsAndSchedule();
+    } catch (e) {
+      print('⚠️ SPLASH: Notification permissions skipped: $e');
+    }
 
     print('📡 SPLASH: Firing background server ping...');
     ApiService().checkServerHealth().then((isAlive) {

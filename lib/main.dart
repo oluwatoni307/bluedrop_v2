@@ -24,15 +24,18 @@ void main() async {
         : null,
   );
 
-  // Request notification permission
-  await FirebaseMessaging.instance.requestPermission(
-    alert: true,
-    badge: true,
-    sound: true,
-  );
-
-  // Subscribe all users to topic
-  await FirebaseMessaging.instance.subscribeToTopic('all_users');
+  // Notifications are optional; a platform/plugin failure must not prevent
+  // the application from launching.
+  try {
+    await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    await FirebaseMessaging.instance.subscribeToTopic('all_users');
+  } catch (e) {
+    print('⚠️ MAIN: Notification setup skipped: $e');
+  }
 
   print('🚀 MAIN: Firebase Ready. Launching App...');
 
