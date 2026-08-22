@@ -6,6 +6,7 @@ class UserContainer {
   final String name; // "Office Mug"
   final int volume; // 350
   final String iconType; // "mug", "bottle", "glass" (Our internal keys)
+  final String? iconColor;
   final DateTime createdAt;
 
   UserContainer({
@@ -13,6 +14,7 @@ class UserContainer {
     required this.name,
     required this.volume,
     required this.iconType,
+    this.iconColor,
     required this.createdAt,
   });
 
@@ -21,12 +23,14 @@ class UserContainer {
     required String name,
     required int volume,
     required String iconType,
+    String? iconColor,
   }) {
     return UserContainer(
       id: const Uuid().v4(),
       name: name,
       volume: volume,
       iconType: iconType,
+      iconColor: iconColor,
       createdAt: DateTime.now(),
     );
   }
@@ -38,6 +42,7 @@ class UserContainer {
       'name': name,
       'volume': volume,
       'iconType': iconType,
+      'iconColor': iconColor,
       'createdAt': createdAt.toIso8601String(),
     };
   }
@@ -48,6 +53,7 @@ class UserContainer {
       name: map['name'] ?? 'Unknown',
       volume: (map['volume'] as num?)?.toInt() ?? 0,
       iconType: map['iconType'] ?? 'cup', // Default fallback
+      iconColor: map['iconColor'] as String?,
       createdAt: DateTime.tryParse(map['createdAt'] ?? '') ?? DateTime.now(),
     );
   }
@@ -74,5 +80,13 @@ class ContainerIcons {
 
   static IconData getIcon(String type) => map[type] ?? Icons.local_drink;
 
-  static Color getColor(String type) => colors[type] ?? const Color(0xFF2F80ED);
+  static Color getColor(String type, [String? colorHex]) {
+    if (colorHex != null) {
+      final normalized = colorHex.replaceFirst('#', '');
+      final value = normalized.length == 6 ? 'FF$normalized' : normalized;
+      final colorValue = int.tryParse(value, radix: 16);
+      if (colorValue != null) return Color(colorValue);
+    }
+    return colors[type] ?? const Color(0xFF2F80ED);
+  }
 }

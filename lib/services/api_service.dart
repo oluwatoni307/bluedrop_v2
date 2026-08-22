@@ -335,7 +335,9 @@ class ApiService {
 
         if (response.statusCode == 200) {
           final decoded = jsonDecode(response.body);
-          var analysisData = decoded['analysis'];
+          var analysisData = decoded is Map<String, dynamic>
+              ? decoded['analysis'] ?? decoded
+              : decoded;
 
           if (analysisData is List && analysisData.isNotEmpty) {
             final firstPart = analysisData.first;

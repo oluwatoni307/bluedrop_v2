@@ -105,6 +105,7 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
               name: name,
               volume: volume,
               iconType: icon,
+              iconColor: initialData.iconColor,
               createdAt: initialData.createdAt,
             );
             await _repo.updateContainer(updatedContainer);
@@ -114,6 +115,7 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
               name: name,
               volume: volume,
               iconType: icon,
+              iconColor: initialData?.iconColor,
             );
             await _repo.saveContainer(newContainer);
           }
@@ -297,13 +299,19 @@ class _ContainerCabinetPageState extends State<ContainerCabinetPage> {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: ContainerIcons.getColor(item.iconType).withAlpha(28),
+                    color: ContainerIcons.getColor(
+                      item.iconType,
+                      item.iconColor,
+                    ).withAlpha(28),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
                     ContainerIcons.getIcon(item.iconType),
                     size: 18,
-                    color: ContainerIcons.getColor(item.iconType),
+                    color: ContainerIcons.getColor(
+                      item.iconType,
+                      item.iconColor,
+                    ),
                   ),
                 ),
 

@@ -51,7 +51,8 @@ class ContainerRepository {
       return UserContainer.create(
         name: rawData['name'] ?? 'New Container',
         volume: (rawData['volume'] as num?)?.toInt() ?? 0,
-        iconType: rawData['icon_type'] ?? 'cup', // Ensure key matches backend
+        iconType: rawData['icon'] ?? rawData['icon_type'] ?? 'cup',
+        iconColor: rawData['icon_color'],
       );
     } catch (e) {
       print("❌ [Repo] Analysis failed: $e");
